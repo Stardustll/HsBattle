@@ -776,6 +776,7 @@ namespace HsBattle
             }
 
             gameState.SendChoices();
+            TryHideChoiceUi();
             LogDecision("choice: " + string.Join(", ", selectedNames.ToArray()));
             _nextActionAt = Time.unscaledTime + PluginConfig.ActionIntervalSeconds;
             return true;
@@ -1317,6 +1318,31 @@ namespace HsBattle
             }
 
             choiceCardMgr.OnSubOptionClicked(selectedEntity);
+            TryHideChoiceUi();
+        }
+
+        private void TryHideChoiceUi()
+        {
+            ChoiceCardMgr choiceCardMgr = ChoiceCardMgr.Get();
+            if (choiceCardMgr == null)
+            {
+                return;
+            }
+
+            try
+            {
+                MethodInfo method = typeof(ChoiceCardMgr).GetMethod(
+                    "HideChoiceUI",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+
+                if (method != null)
+                {
+                    method.Invoke(choiceCardMgr, null);
+                }
+            }
+            catch
+            {
+            }
         }
 
         private void LogDecision(string description)
