@@ -10,6 +10,9 @@ namespace HsBattle
     {
         private const float ModeSwitchSettleSeconds = 1.5f;
         private const float DeckSelectionSettleSeconds = 0.8f;
+        private const float MulliganReadySettleSeconds = 2f;
+        private const float MulliganConfirmDelaySeconds = 0.4f;
+        private const float PostMulliganSettleSeconds = 1.25f;
 
         private bool _forceQueueRequested;
         private bool _queueReturnToHubPending;
@@ -18,6 +21,10 @@ namespace HsBattle
         private long _lastQueueDeckId;
         private float _nextQueueAttemptAt;
         private float _nextActionAt;
+        private float _postMulliganActionBlockedUntil;
+        private float _mulliganReadySinceAt;
+        private float _mulliganHoldIssuedAt;
+        private float _mulliganConfirmReadySinceAt;
         private float _deckSelectionWaitStartedAt;
         private float _modeSwitchWaitStartedAt;
         private float _modeSwitchSettledAt;
@@ -77,6 +84,8 @@ namespace HsBattle
         {
             _nextActionAt = Time.unscaledTime + 2f;
             _nextQueueAttemptAt = Time.unscaledTime + 2f;
+            _postMulliganActionBlockedUntil = 0f;
+            ResetMulliganProgress();
         }
 
         private void HandleHotkeys()
@@ -537,7 +546,13 @@ namespace HsBattle
 
         private void TryHandleMulligan()
         {
-            if (!PluginConfig.AutoBattleEnabledValue || !PluginConfig.AutoMulliganEnabledValue || Time.unscaledTime < _nextActionAt)
+            if (!PluginConfig.AutoBattleEnabledValue || !PluginConfig.AutoMulliganEnabledValue)
+            {
+                ResetMulliganProgress();
+                return;
+            }
+
+            if (Time.unscaledTime < _nextActionAt)
             {
                 return;
             }
@@ -545,18 +560,91 @@ namespace HsBattle
             GameState gameState = GameState.Get();
             if (gameState == null || !gameState.IsMulliganManagerActive() || GameMgr.Get()?.IsSpectator() == true)
             {
+                ResetMulliganProgress();
                 return;
             }
 
             MulliganManager mulliganManager = MulliganManager.Get();
-            if (mulliganManager == null || mulliganManager.GetMulliganButton() == null)
+            if (mulliganManager == null || !mulliganManager.IsMulliganActive())
+            {
+                ResetMulliganProgress();
+                return;
+            }
+
+            if (mulliganManager.IsMulliganIntroActive() || ShouldWaitForMulliganCardsToBeProcessed(mulliganManager))
+            {
+                ResetMulliganProgress();
+                return;
+            }
+
+            if (!IsMulliganWaitingForUserInput(mulliganManager))
+            {
+                ResetMulliganProgress();
+                return;
+            }
+
+            if (_mulliganReadySinceAt <= 0f)
+            {
+                _mulliganReadySinceAt = Time.unscaledTime;
+                _mulliganHoldIssuedAt = 0f;
+                _mulliganConfirmReadySinceAt = 0f;
+                return;
+            }
+
+            if (Time.unscaledTime - _mulliganReadySinceAt < Mathf.Max(MulliganReadySettleSeconds, PluginConfig.ActionIntervalSeconds))
             {
                 return;
             }
 
-            mulliganManager.AutomaticContinueMulligan();
-            LogDecision("auto mulligan");
-            _nextActionAt = Time.unscaledTime + PluginConfig.ActionIntervalSeconds;
+            if (_mulliganHoldIssuedAt <= 0f)
+            {
+                mulliganManager.SetAllMulliganCardsToHold();
+                _mulliganHoldIssuedAt = Time.unscaledTime;
+                _mulliganConfirmReadySinceAt = 0f;
+                LogDecision("auto mulligan keep all");
+                return;
+            }
+
+            if (!gameState.GetBooleanGameOption(GameEntityOption.MULLIGAN_REQUIRES_CONFIRMATION))
+            {
+                if (Time.unscaledTime - _mulliganHoldIssuedAt < MulliganConfirmDelaySeconds)
+                {
+                    return;
+                }
+
+                mulliganManager.AutomaticContinueMulligan(false);
+                ResetMulliganProgress();
+                _postMulliganActionBlockedUntil = Time.unscaledTime + Mathf.Max(PostMulliganSettleSeconds, PluginConfig.ActionIntervalSeconds);
+                _nextActionAt = _postMulliganActionBlockedUntil;
+                return;
+            }
+
+            if (!IsMulliganConfirmButtonReady(mulliganManager))
+            {
+                _mulliganConfirmReadySinceAt = 0f;
+                return;
+            }
+
+            if (_mulliganConfirmReadySinceAt <= 0f)
+            {
+                _mulliganConfirmReadySinceAt = Time.unscaledTime;
+                return;
+            }
+
+            if (Time.unscaledTime - _mulliganConfirmReadySinceAt < MulliganConfirmDelaySeconds)
+            {
+                return;
+            }
+
+            if (!TryConfirmMulligan(mulliganManager))
+            {
+                _mulliganConfirmReadySinceAt = 0f;
+                return;
+            }
+
+            ResetMulliganProgress();
+            _postMulliganActionBlockedUntil = Time.unscaledTime + Mathf.Max(PostMulliganSettleSeconds, PluginConfig.ActionIntervalSeconds);
+            _nextActionAt = _postMulliganActionBlockedUntil;
         }
 
         private void TryHandleBattle()
@@ -569,6 +657,17 @@ namespace HsBattle
             GameMgr gameMgr = GameMgr.Get();
             GameState gameState = GameState.Get();
             if (gameMgr == null || gameState == null)
+            {
+                return;
+            }
+
+            MulliganManager mulliganManager = MulliganManager.Get();
+            if (mulliganManager != null && (mulliganManager.IsMulliganActive() || mulliganManager.IsMulliganIntroActive()))
+            {
+                return;
+            }
+
+            if (Time.unscaledTime < _postMulliganActionBlockedUntil)
             {
                 return;
             }
@@ -588,6 +687,12 @@ namespace HsBattle
                 return;
             }
 
+            if (gameState.IsInChoiceMode())
+            {
+                TryHandleChoice(gameState);
+                return;
+            }
+
             Network.Options options = gameState.GetOptionsPacket() ?? gameState.GetLastOptions();
             if (options == null || options.List == null || options.List.Count == 0)
             {
@@ -601,6 +706,207 @@ namespace HsBattle
             }
 
             ExecuteAction(gameState, action);
+        }
+
+        private bool TryHandleChoice(GameState gameState)
+        {
+            if (gameState == null || !gameState.IsInChoiceMode() || gameState.MustWaitForChoices())
+            {
+                return false;
+            }
+
+            Network.EntityChoices choices = gameState.GetFriendlyEntityChoices();
+            if (choices == null || choices.Entities == null || choices.Entities.Count == 0)
+            {
+                return false;
+            }
+
+            HashSet<int> blockedEntities = choices.UnchoosableEntities != null
+                ? new HashSet<int>(choices.UnchoosableEntities)
+                : null;
+
+            List<Entity> rankedChoices = new List<Entity>();
+            int requiredCount = Mathf.Max(1, choices.CountMin);
+            int maxCount = choices.CountMax > 0 ? choices.CountMax : requiredCount;
+
+            for (int index = 0; index < choices.Entities.Count; index++)
+            {
+                int entityId = choices.Entities[index];
+                if (entityId <= 0 || (blockedEntities != null && blockedEntities.Contains(entityId)))
+                {
+                    continue;
+                }
+
+                Entity entity = gameState.GetEntity(entityId);
+                if (entity != null)
+                {
+                    rankedChoices.Add(entity);
+                }
+            }
+
+            if (rankedChoices.Count == 0)
+            {
+                return false;
+            }
+
+            rankedChoices.Sort(delegate (Entity left, Entity right)
+            {
+                return EvaluateChoiceEntity(right).CompareTo(EvaluateChoiceEntity(left));
+            });
+
+            int selectCount = Mathf.Clamp(requiredCount, 1, Mathf.Min(maxCount, rankedChoices.Count));
+            ClearChosenEntities(gameState);
+
+            List<string> selectedNames = new List<string>();
+            for (int i = 0; i < selectCount; i++)
+            {
+                Entity entity = rankedChoices[i];
+                if (entity == null || !gameState.AddChosenEntity(entity))
+                {
+                    continue;
+                }
+
+                selectedNames.Add(entity.GetName());
+            }
+
+            if (selectedNames.Count < requiredCount)
+            {
+                ClearChosenEntities(gameState);
+                return false;
+            }
+
+            gameState.SendChoices();
+            LogDecision("choice: " + string.Join(", ", selectedNames.ToArray()));
+            _nextActionAt = Time.unscaledTime + PluginConfig.ActionIntervalSeconds;
+            return true;
+        }
+
+        private bool ShouldWaitForMulliganCardsToBeProcessed(MulliganManager mulliganManager)
+        {
+            if (mulliganManager == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                MethodInfo method = typeof(MulliganManager).GetMethod(
+                    "ShouldWaitForMulliganCardsToBeProcessed",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+                if (method == null)
+                {
+                    return false;
+                }
+
+                object value = method.Invoke(mulliganManager, null);
+                return value is bool && (bool)value;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsMulliganWaitingForUserInput(MulliganManager mulliganManager)
+        {
+            if (mulliganManager == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                FieldInfo field = typeof(MulliganManager).GetField("m_waitingForUserInput", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field == null)
+                {
+                    return false;
+                }
+
+                object value = field.GetValue(mulliganManager);
+                return value is bool && (bool)value;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsMulliganConfirmButtonReady(MulliganManager mulliganManager)
+        {
+            if (mulliganManager == null || !IsMulliganWaitingForUserInput(mulliganManager))
+            {
+                return false;
+            }
+
+            GameObject buttonObject = mulliganManager.GetMulliganButton();
+            if (buttonObject == null || !buttonObject.activeInHierarchy)
+            {
+                return false;
+            }
+
+            NormalButton button = buttonObject.GetComponent<NormalButton>();
+            if (button == null || !button.IsEnabled())
+            {
+                return false;
+            }
+
+            Collider collider = buttonObject.GetComponent<Collider>();
+            return collider == null || collider.enabled;
+        }
+
+        private bool TryConfirmMulligan(MulliganManager mulliganManager)
+        {
+            if (mulliganManager == null)
+            {
+                return false;
+            }
+
+            GameObject buttonObject = mulliganManager.GetMulliganButton();
+            if (buttonObject == null || !buttonObject.activeInHierarchy)
+            {
+                return false;
+            }
+
+            NormalButton button = buttonObject.GetComponent<NormalButton>();
+            if (button == null || !button.IsEnabled())
+            {
+                return false;
+            }
+
+            button.TriggerPress();
+            button.TriggerRelease();
+            LogDecision("auto mulligan confirm");
+            return true;
+        }
+
+        private void ClearChosenEntities(GameState gameState)
+        {
+            if (gameState == null)
+            {
+                return;
+            }
+
+            List<Entity> chosenEntities = gameState.GetChosenEntities();
+            if (chosenEntities == null || chosenEntities.Count == 0)
+            {
+                return;
+            }
+
+            foreach (Entity entity in chosenEntities.ToList())
+            {
+                if (entity != null)
+                {
+                    gameState.RemoveChosenEntity(entity);
+                }
+            }
+        }
+
+        private void ResetMulliganProgress()
+        {
+            _mulliganReadySinceAt = 0f;
+            _mulliganHoldIssuedAt = 0f;
+            _mulliganConfirmReadySinceAt = 0f;
         }
 
         private ActionPlan BuildActionPlan(GameState gameState, Network.Options options)
@@ -638,7 +944,7 @@ namespace HsBattle
 
             if (kind != ActionKind.EndTurn && kind != ActionKind.Pass)
             {
-                if (mainEntity == null || !IsPlayableSubOption(option.Main) || !gameState.IsValidOption(mainEntity, null))
+                if (!IsPlayableSubOption(option.Main))
                 {
                     return null;
                 }
@@ -663,7 +969,7 @@ namespace HsBattle
 
             bool requiresPosition = actionEntity != null && RequiresPosition(actionEntity);
             int position = requiresPosition ? ResolvePosition() : 0;
-            if (requiresPosition && position <= 0)
+            if (requiresPosition && position < 0)
             {
                 return null;
             }
@@ -796,7 +1102,7 @@ namespace HsBattle
                 return 10;
             }
 
-            return 0;
+            return 100;
         }
 
         private int EvaluateEntity(Entity entity)
@@ -809,6 +1115,22 @@ namespace HsBattle
             return entity.GetRealTimeCost() * 10 + entity.GetRealTimeAttack() + entity.GetCurrentHealth();
         }
 
+        private int EvaluateChoiceEntity(Entity entity)
+        {
+            if (entity == null)
+            {
+                return int.MinValue;
+            }
+
+            int score = EvaluateEntity(entity);
+            if (entity.IsMinion())
+            {
+                score += 25;
+            }
+
+            return score;
+        }
+
         private bool RequiresPosition(Entity entity)
         {
             return entity.IsMinion() || entity.IsLocation() || entity.IsBaconSpell() || entity.IsBattlegroundTrinket();
@@ -818,7 +1140,7 @@ namespace HsBattle
         {
             Player friendlyPlayer = GameState.Get()?.GetFriendlySidePlayer();
             Zone battlefieldZone = friendlyPlayer?.GetBattlefieldZone();
-            return battlefieldZone != null ? battlefieldZone.GetLastPos() : 0;
+            return battlefieldZone != null ? battlefieldZone.GetCardCount() : -1;
         }
 
         private int ResolveTargetId(GameState gameState, Entity sourceEntity, List<Network.Options.Option.TargetOption> targetOptions)
@@ -939,7 +1261,15 @@ namespace HsBattle
                 gameState.SetSelectedOptionTarget(action.TargetId);
             }
 
-            gameState.SendOption();
+            if (gameState.IsInChoiceMode())
+            {
+                gameState.SendChoices();
+            }
+            else
+            {
+                gameState.SendOption();
+            }
+
             LogDecision(action.Description);
             _nextActionAt = Time.unscaledTime + PluginConfig.ActionIntervalSeconds;
         }
