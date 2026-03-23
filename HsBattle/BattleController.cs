@@ -1261,6 +1261,11 @@ namespace HsBattle
                 gameState.SetSelectedOptionTarget(action.TargetId);
             }
 
+            if (!gameState.IsInChoiceMode() && action.SubOptionIndex >= 0)
+            {
+                NotifySubOptionSelected(gameState, action);
+            }
+
             if (gameState.IsInChoiceMode())
             {
                 gameState.SendChoices();
@@ -1272,6 +1277,46 @@ namespace HsBattle
 
             LogDecision(action.Description);
             _nextActionAt = Time.unscaledTime + PluginConfig.ActionIntervalSeconds;
+        }
+
+        private void NotifySubOptionSelected(GameState gameState, ActionPlan action)
+        {
+            if (gameState == null || action == null || action.SubOptionIndex < 0)
+            {
+                return;
+            }
+
+            Network.Options options = gameState.GetOptionsPacket() ?? gameState.GetLastOptions();
+            if (options == null || options.List == null || action.OptionIndex < 0 || action.OptionIndex >= options.List.Count)
+            {
+                return;
+            }
+
+            Network.Options.Option option = options.List[action.OptionIndex];
+            if (option == null || option.Subs == null || action.SubOptionIndex >= option.Subs.Count)
+            {
+                return;
+            }
+
+            Network.Options.Option.SubOption subOption = option.Subs[action.SubOptionIndex];
+            if (subOption == null)
+            {
+                return;
+            }
+
+            Entity selectedEntity = gameState.GetEntity(subOption.ID);
+            if (selectedEntity == null)
+            {
+                return;
+            }
+
+            ChoiceCardMgr choiceCardMgr = ChoiceCardMgr.Get();
+            if (choiceCardMgr == null)
+            {
+                return;
+            }
+
+            choiceCardMgr.OnSubOptionClicked(selectedEntity);
         }
 
         private void LogDecision(string description)
