@@ -16,6 +16,8 @@ namespace HsBattle
         private const float EndGameContinueInitialDelaySeconds = 1.2f;
         private const float EndGameContinueIntervalSeconds = 0.6f;
         private const float EndGameForceCloseSeconds = 8f;
+        private const float PostGameUiWatchSeconds = 20f;
+        private const float PostGameUiRetrySeconds = 0.35f;
         private const float MulliganReadySettleSeconds = 2f;
         private const float MulliganConfirmDelaySeconds = 0.4f;
         private const float PostMulliganSettleSeconds = 1.25f;
@@ -26,6 +28,12 @@ namespace HsBattle
         private static readonly MethodInfo EndGameIsInputBlockedMethod = typeof(EndGameScreen).GetMethod("IsInputBlocked", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo EndGameIsPlayingBlockingAnimMethod = typeof(EndGameScreen).GetMethod("IsPlayingBlockingAnim", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo EndGameBackToModeMethod = typeof(EndGameScreen).GetMethod("BackToMode", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo EndGameHitboxField = typeof(EndGameScreen).GetField("m_hitbox", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo RankChangeDebugClickCatcherField = typeof(RankChangeTwoScoop_NEW).GetField("m_debugClickCatcher", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo RankChangeIsReadyMethod = typeof(RankChangeTwoScoop_NEW).GetMethod("get_IsReady", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo RankChangeOnClickMethod = typeof(RankChangeTwoScoop_NEW).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo RankChangeHideMethod = typeof(RankChangeTwoScoop_NEW).GetMethod("Hide", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo RankedBonusStarsPopupHideMethod = typeof(RankedBonusStarsPopup).GetMethod("Hide", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
         private bool _forceQueueRequested;
         private bool _queueReturnToHubPending;
@@ -123,6 +131,11 @@ namespace HsBattle
                 return;
             }
 
+            if (TryHandlePostGameRankSummary())
+            {
+                return;
+            }
+
             SceneMgr sceneMgr = SceneMgr.Get();
             GameState gameState = GameState.Get();
             EndGameScreen endGameScreen = EndGameScreen.Get();
@@ -136,7 +149,14 @@ namespace HsBattle
             {
                 if (!inFinishedGame && endGameScreen == null)
                 {
-                    ResetEndGameProgress();
+                    if (ShouldKeepWatchingPostGameUi())
+                    {
+                        _nextEndGameContinueAt = Time.unscaledTime + PostGameUiRetrySeconds;
+                    }
+                    else
+                    {
+                        ResetEndGameProgress();
+                    }
                 }
 
                 return;
@@ -144,7 +164,7 @@ namespace HsBattle
 
             if (IsEndGameInputBlocked(endGameScreen) || IsEndGameBlockingAnimationPlaying(endGameScreen))
             {
-                _nextEndGameContinueAt = Time.unscaledTime + 0.35f;
+                _nextEndGameContinueAt = Time.unscaledTime + PostGameUiRetrySeconds;
                 return;
             }
 
@@ -170,6 +190,178 @@ namespace HsBattle
         {
             _gameEndedAt = 0f;
             _nextEndGameContinueAt = 0f;
+        }
+
+        private bool TryHandlePostGameRankSummary()
+        {
+            if (TryHandleRankChangeSummary())
+            {
+                return true;
+            }
+
+            if (TryHandleRankedBonusStarsPopup())
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryHandleRankChangeSummary()
+        {
+            RankChangeTwoScoop_NEW rankChangeSummary = UnityEngine.Object.FindObjectOfType<RankChangeTwoScoop_NEW>();
+            if (!IsActiveGameObject(rankChangeSummary))
+            {
+                return false;
+            }
+
+            if (TrySimulateRankChangeContinueClick(rankChangeSummary))
+            {
+                _nextEndGameContinueAt = Time.unscaledTime + PostGameUiRetrySeconds;
+                return true;
+            }
+
+            bool isReady = IsRankChangeReady(rankChangeSummary);
+            if (isReady)
+            {
+                if (InvokeMethod(rankChangeSummary, RankChangeOnClickMethod, "advanced ranked rank-change summary"))
+                {
+                    _nextEndGameContinueAt = Time.unscaledTime + EndGameContinueIntervalSeconds;
+                    return true;
+                }
+            }
+            else if (ShouldForceCloseEndGameScreen())
+            {
+                if (InvokeMethod(rankChangeSummary, RankChangeHideMethod, "force-closed ranked rank-change summary"))
+                {
+                    _nextEndGameContinueAt = Time.unscaledTime + EndGameContinueIntervalSeconds;
+                    return true;
+                }
+            }
+
+            _nextEndGameContinueAt = Time.unscaledTime + PostGameUiRetrySeconds;
+            return true;
+        }
+
+        private bool TrySimulateRankChangeContinueClick(RankChangeTwoScoop_NEW rankChangeSummary)
+        {
+            bool clicked = false;
+            clicked |= TryTriggerPegClick(GetPegUiElement(rankChangeSummary, RankChangeDebugClickCatcherField), "simulated ranked summary click catcher");
+            clicked |= TryTriggerPegClick(GetPegUiElement(EndGameScreen.Get(), EndGameHitboxField), "simulated end-game hitbox click");
+            return clicked;
+        }
+
+        private bool TryHandleRankedBonusStarsPopup()
+        {
+            RankedBonusStarsPopup bonusStarsPopup = UnityEngine.Object.FindObjectOfType<RankedBonusStarsPopup>();
+            if (!IsActiveGameObject(bonusStarsPopup))
+            {
+                return false;
+            }
+
+            if (InvokeMethod(bonusStarsPopup, RankedBonusStarsPopupHideMethod, "closed ranked bonus-stars popup"))
+            {
+                _nextEndGameContinueAt = Time.unscaledTime + EndGameContinueIntervalSeconds;
+                return true;
+            }
+
+            _nextEndGameContinueAt = Time.unscaledTime + PostGameUiRetrySeconds;
+            return true;
+        }
+
+        private bool ShouldKeepWatchingPostGameUi()
+        {
+            return _gameEndedAt > 0f && Time.unscaledTime - _gameEndedAt < PostGameUiWatchSeconds;
+        }
+
+        private static PegUIElement GetPegUiElement(object instance, FieldInfo field)
+        {
+            if (instance == null || field == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return field.GetValue(instance) as PegUIElement;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsActiveGameObject(Component component)
+        {
+            return component != null && component.gameObject != null && component.gameObject.activeInHierarchy;
+        }
+
+        private bool TryTriggerPegClick(PegUIElement element, string successMessage)
+        {
+            if (!IsActiveGameObject(element))
+            {
+                return false;
+            }
+
+            try
+            {
+                element.TriggerPress();
+                element.TriggerRelease();
+                Utils.MyLogger(BepInEx.Logging.LogLevel.Info, "HsBattle " + successMessage + ".");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    element.TriggerTap();
+                    Utils.MyLogger(BepInEx.Logging.LogLevel.Info, "HsBattle " + successMessage + " via tap.");
+                    return true;
+                }
+                catch (Exception tapEx)
+                {
+                    Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HsBattle could not simulate post-game click: " + ex.Message + " / " + tapEx.Message);
+                    return false;
+                }
+            }
+        }
+
+        private bool IsRankChangeReady(RankChangeTwoScoop_NEW rankChangeSummary)
+        {
+            if (rankChangeSummary == null || RankChangeIsReadyMethod == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                object result = RankChangeIsReadyMethod.Invoke(rankChangeSummary, null);
+                return result is bool && (bool)result;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool InvokeMethod(object instance, MethodInfo method, string successMessage)
+        {
+            if (instance == null || method == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                method.Invoke(instance, null);
+                Utils.MyLogger(BepInEx.Logging.LogLevel.Info, "HsBattle " + successMessage + ".");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HsBattle could not handle post-game UI: " + ex.Message);
+                return false;
+            }
         }
 
         private bool InvokeEndGameContinueEvents(EndGameScreen endGameScreen)
@@ -313,6 +505,11 @@ namespace HsBattle
                 DescribeScene(sceneMgr),
                 DescribeQueueStatus(gameMgr),
                 DescribeBattleStatus(gameMgr, gameState));
+        }
+
+        public bool ShouldAutoSkipPostGameUi()
+        {
+            return PluginConfig.EnabledValue && (PluginConfig.AutoQueueEnabledValue || _forceQueueRequested);
         }
 
         private void TryQueue()
@@ -1532,7 +1729,8 @@ namespace HsBattle
 
             if (enemyTargets.Count > 0)
             {
-                return ChooseEnemyTarget(sourceEntity, enemyTargets).GetEntityId();
+                Entity enemyTarget = ChooseEnemyTarget(sourceEntity, enemyTargets);
+                return enemyTarget != null ? enemyTarget.GetEntityId() : -1;
             }
 
             if (friendlyTargets.Count > 0)
@@ -1550,28 +1748,35 @@ namespace HsBattle
                 .Where(delegate (Entity item) { return item.IsMinion(); })
                 .ToList();
 
-            if (heroTarget != null && sourceEntity != null && sourceEntity.GetRealTimeAttack() >= heroTarget.GetCurrentHealth())
+            Entity preferredMinion = ChoosePreferredEnemyMinionTarget(sourceEntity, enemyMinions);
+            return ChooseConfiguredEnemyTarget(heroTarget, preferredMinion, enemyTargets);
+        }
+
+        // 0-99 prioritizes clearing legal enemy minions before face; 100 always goes face when legal.
+        private Entity ChooseConfiguredEnemyTarget(Entity heroTarget, Entity preferredMinion, List<Entity> enemyTargets)
+        {
+            int attackFaceChancePercent = PluginConfig.AttackFaceChancePercentValue;
+            if (heroTarget == null)
+            {
+                return preferredMinion ?? enemyTargets[0];
+            }
+
+            if (attackFaceChancePercent >= 100)
             {
                 return heroTarget;
             }
 
-            Entity preferredMinion = ChoosePreferredEnemyMinionTarget(sourceEntity, enemyMinions);
-            if (preferredMinion == null)
-            {
-                return heroTarget ?? enemyTargets[0];
-            }
-
-            if (heroTarget == null)
+            if (preferredMinion != null)
             {
                 return preferredMinion;
             }
 
-            if (RollChance(PluginConfig.AttackMinionChancePercentValue))
+            if (attackFaceChancePercent <= 0)
             {
-                return preferredMinion;
+                return null;
             }
 
-            return heroTarget;
+            return RollChance(attackFaceChancePercent) ? heroTarget : null;
         }
 
         private Entity ChooseFriendlyTarget(List<Entity> friendlyTargets)

@@ -28,7 +28,7 @@ namespace HsBattle
         public static ConfigEntry<int> actionIntervalMs;
         public static ConfigEntry<int> actionDelayMinMs;
         public static ConfigEntry<int> actionDelayMaxMs;
-        public static ConfigEntry<int> attackMinionChancePercent;
+        public static ConfigEntry<int> attackFaceChancePercent;
         public static ConfigEntry<int> queueRetrySeconds;
         public static ConfigEntry<string> matchLogPath;
         public static ConfigEntry<KeyboardShortcut> toggleAutomationKey;
@@ -121,9 +121,9 @@ namespace HsBattle
             }
         }
 
-        public static int AttackMinionChancePercentValue
+        public static int AttackFaceChancePercentValue
         {
-            get { return Math.Max(0, Math.Min(100, attackMinionChancePercent != null ? attackMinionChancePercent.Value : 65)); }
+            get { return Math.Max(0, Math.Min(100, attackFaceChancePercent != null ? attackFaceChancePercent.Value : 35)); }
         }
 
         public static float QueueRetrySecondsValue
@@ -163,7 +163,7 @@ namespace HsBattle
             actionIntervalMs = config.Bind("Battle", "ActionIntervalMs", 900, "Legacy base delay between automated game actions.");
             actionDelayMinMs = config.Bind("Battle", "ActionDelayMinMs", Math.Max(200, actionIntervalMs.Value - 150), "Minimum delay between automated battle actions.");
             actionDelayMaxMs = config.Bind("Battle", "ActionDelayMaxMs", Math.Max(Math.Max(200, actionIntervalMs.Value - 150), actionIntervalMs.Value + 150), "Maximum delay between automated battle actions.");
-            attackMinionChancePercent = config.Bind("Battle", "AttackMinionChancePercent", 65, "Chance to prefer attacking an enemy minion when both enemy minions and the enemy hero are valid targets.");
+            attackFaceChancePercent = config.Bind("Battle", "AttackFaceChancePercent", 35, "Chance for attacks to go face. 0 means only trade and skip face after the board is clear, 100 means always attack face when the enemy hero is a legal target. Taunt and other forced targets still apply.");
 
             matchLogPath = config.Bind(
                 "Logging",
@@ -266,11 +266,11 @@ namespace HsBattle
             SetActionDelayRange(minDelayMs, maxDelayMs);
         }
 
-        public static void SetAttackMinionChancePercent(int value)
+        public static void SetAttackFaceChancePercent(int value)
         {
-            if (attackMinionChancePercent != null)
+            if (attackFaceChancePercent != null)
             {
-                attackMinionChancePercent.Value = Math.Max(0, Math.Min(100, value));
+                attackFaceChancePercent.Value = Math.Max(0, Math.Min(100, value));
             }
         }
 

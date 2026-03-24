@@ -35,6 +35,9 @@ namespace HsBattle
 
     public static class Patches
     {
+        private static readonly MethodInfo RankChangeOnClickMethod = AccessTools.Method(typeof(RankChangeTwoScoop_NEW), "OnClick");
+        private static readonly MethodInfo RankedBonusStarsPopupHideMethod = AccessTools.Method(typeof(RankedBonusStarsPopup), "Hide");
+
         [HarmonyPostfix]
         [HarmonyPatch(typeof(LoginManager), "OnLoginComplete")]
         public static void PatchOnLoginComplete()
@@ -140,6 +143,56 @@ namespace HsBattle
             catch (Exception ex)
             {
                 Utils.MyLogger(BepInEx.Logging.LogLevel.Error, ex);
+            }
+        }
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(RankChangeTwoScoop_NEW), "EnableClickToContinue")]
+        public static void PatchRankChangeEnableClickToContinue(RankChangeTwoScoop_NEW __instance)
+        {
+            if (!ShouldAutoSkipPostGameUi())
+            {
+                return;
+            }
+
+            InvokeUiAction(__instance, RankChangeOnClickMethod, "HsBattle auto-continued ranked summary.");
+        }
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(RankedBonusStarsPopup), "Show")]
+        public static void PatchRankedBonusStarsPopupShow(RankedBonusStarsPopup __instance)
+        {
+            if (!ShouldAutoSkipPostGameUi())
+            {
+                return;
+            }
+
+            InvokeUiAction(__instance, RankedBonusStarsPopupHideMethod, "HsBattle auto-closed ranked bonus stars popup.");
+        }
+
+        private static bool ShouldAutoSkipPostGameUi()
+        {
+            BattleController controller = Plugin.Instance?.Controller;
+            return controller != null
+                ? controller.ShouldAutoSkipPostGameUi()
+                : PluginConfig.EnabledValue && PluginConfig.AutoQueueEnabledValue;
+        }
+
+        private static void InvokeUiAction(object instance, MethodInfo method, string successMessage)
+        {
+            if (instance == null || method == null)
+            {
+                return;
+            }
+
+            try
+            {
+                method.Invoke(instance, null);
+                Utils.MyLogger(BepInEx.Logging.LogLevel.Info, successMessage);
+            }
+            catch (Exception ex)
+            {
+                Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HsBattle could not auto-handle ranked post-game UI: " + ex.Message);
             }
         }
 

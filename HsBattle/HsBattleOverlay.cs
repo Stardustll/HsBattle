@@ -42,7 +42,7 @@ namespace HsBattle
         private string _queueRetryInput = string.Empty;
         private string _delayMinInput = string.Empty;
         private string _delayMaxInput = string.Empty;
-        private string _attackMinionChanceInput = string.Empty;
+        private string _attackFaceChanceInput = string.Empty;
         private string _matchLogPathInput = string.Empty;
 
         public HsBattleOverlay(BattleController controller)
@@ -273,7 +273,7 @@ namespace HsBattle
             DrawSectionHeader("战斗");
             DrawIntInputRow("延迟下限(ms)", ref _delayMinInput, ApplyDelayInputs);
             DrawIntInputRow("延迟上限(ms)", ref _delayMaxInput, ApplyDelayInputs);
-            DrawIntInputRow("打随从概率(%)", ref _attackMinionChanceInput, ApplyAttackMinionChanceInput);
+            DrawIntInputRow("打脸概率(%)", ref _attackFaceChanceInput, ApplyAttackFaceChanceInput);
 
             DrawSectionHeader("日志");
             DrawTextInputRow("结果日志路径", ref _matchLogPathInput, ApplyMatchLogPathInput);
@@ -655,7 +655,7 @@ namespace HsBattle
             _queueRetryInput = Mathf.RoundToInt(PluginConfig.QueueRetrySecondsValue).ToString();
             _delayMinInput = PluginConfig.ActionDelayMinMsValue.ToString();
             _delayMaxInput = PluginConfig.ActionDelayMaxMsValue.ToString();
-            _attackMinionChanceInput = PluginConfig.AttackMinionChancePercentValue.ToString();
+            _attackFaceChanceInput = PluginConfig.AttackFaceChancePercentValue.ToString();
             _matchLogPathInput = PluginConfig.MatchLogPathValue;
         }
 
@@ -690,19 +690,19 @@ namespace HsBattle
             ShowInfo(string.Format("动作延迟范围：{0}-{1}ms", PluginConfig.ActionDelayMinMsValue, PluginConfig.ActionDelayMaxMsValue));
         }
 
-        private void ApplyAttackMinionChanceInput()
+        private void ApplyAttackFaceChanceInput()
         {
             int value;
-            if (!int.TryParse(_attackMinionChanceInput, out value))
+            if (!int.TryParse(_attackFaceChanceInput, out value))
             {
-                ShowInfo("打随从概率需输入整数");
+                ShowInfo("打脸概率需输入整数");
                 SyncInputsFromConfig();
                 return;
             }
 
-            PluginConfig.SetAttackMinionChancePercent(value);
+            PluginConfig.SetAttackFaceChancePercent(value);
             SyncInputsFromConfig();
-            ShowInfo(string.Format("打随从概率：{0}%", PluginConfig.AttackMinionChancePercentValue));
+            ShowInfo(string.Format("打脸概率：{0}%", PluginConfig.AttackFaceChancePercentValue));
         }
 
         private void ApplyMatchLogPathInput()
