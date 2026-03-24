@@ -1,4 +1,5 @@
 using BepInEx.Logging;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -28,13 +29,21 @@ namespace HsBattle
         private GUIStyle _buttonActiveStyle;
         private GUIStyle _statusStyle;
         private GUIStyle _titleStyle;
+        private GUIStyle _textFieldStyle;
         private bool _stylesReady;
         private bool _collapsed;
+        private bool _settingsOpen;
         private bool _modeDropdownOpen;
         private bool _deckDropdownOpen;
         private float _nextDeckRefreshAt;
         private Vector2 _deckScrollPosition;
+        private Vector2 _settingsScrollPosition;
         private List<QueueDeckInfo> _deckOptions = new List<QueueDeckInfo>();
+        private string _queueRetryInput = string.Empty;
+        private string _delayMinInput = string.Empty;
+        private string _delayMaxInput = string.Empty;
+        private string _attackMinionChanceInput = string.Empty;
+        private string _matchLogPathInput = string.Empty;
 
         public HsBattleOverlay(BattleController controller)
         {
@@ -69,106 +78,12 @@ namespace HsBattle
                     return;
                 }
 
-                float panelHeight = 184f;
-                if (_modeDropdownOpen)
+                DrawMainPanel();
+
+                if (_settingsOpen)
                 {
-                    panelHeight += 82f;
+                    DrawSettingsPanel();
                 }
-
-                if (_deckDropdownOpen)
-                {
-                    panelHeight += 172f;
-                }
-
-                GUILayout.BeginArea(new Rect(10f, 10f, 320f, panelHeight), GUIContent.none, _panelStyle);
-
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(new GUIContent("HsBattle"), _titleStyle, GUILayout.Width(214f), GUILayout.Height(24f));
-
-                if (GUILayout.Button(new GUIContent(_collapsed ? "展开" : "缩小"), _buttonStyle, GUILayout.Width(68f), GUILayout.Height(24f)))
-                {
-                    ToggleCollapsed();
-                }
-
-                GUILayout.EndHorizontal();
-
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button(new GUIContent(BuildAutomationLabel()), _buttonStyle, GUILayout.Width(152f), GUILayout.Height(28f)))
-                {
-                    bool enable = !PluginConfig.AutomationFullyEnabledValue;
-                    PluginConfig.SetAutomationEnabled(enable);
-                    ShowInfo(enable ? "\u5df2\u5f00\u542f\u81ea\u52a8\u5316" : "\u5df2\u6682\u505c\u81ea\u52a8\u5316");
-                }
-
-                if (GUILayout.Button(new GUIContent("\u7acb\u5373\u5339\u914d"), _buttonStyle, GUILayout.Width(132f), GUILayout.Height(28f)))
-                {
-                    _controller?.RequestQueueNow();
-                }
-
-                GUILayout.EndHorizontal();
-
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button(new GUIContent(BuildQueueLabel()), _buttonStyle, GUILayout.Width(152f), GUILayout.Height(28f)))
-                {
-                    ToggleQueue();
-                }
-
-                if (GUILayout.Button(new GUIContent(BuildBattleLabel()), _buttonStyle, GUILayout.Width(132f), GUILayout.Height(28f)))
-                {
-                    ToggleBattle();
-                }
-
-                GUILayout.EndHorizontal();
-
-                QueueMode selectedMode = PluginConfig.queueMode != null ? PluginConfig.queueMode.Value : QueueMode.Standard;
-                if (GUILayout.Button(new GUIContent(BuildQueueModeLabel(selectedMode)), _buttonStyle, GUILayout.Width(290f), GUILayout.Height(28f)))
-                {
-                    _deckDropdownOpen = false;
-                    _modeDropdownOpen = !_modeDropdownOpen;
-                }
-
-                if (_modeDropdownOpen)
-                {
-                    for (int index = 0; index < QueueModes.Length; index++)
-                    {
-                        QueueMode mode = QueueModes[index];
-                        GUIStyle buttonStyle = mode == selectedMode ? _buttonActiveStyle : _buttonStyle;
-                        if (GUILayout.Button(new GUIContent(PluginConfig.DescribeQueueMode(mode)), buttonStyle, GUILayout.Width(290f), GUILayout.Height(24f)))
-                        {
-                            SelectQueueMode(mode);
-                        }
-                    }
-                }
-
-                if (GUILayout.Button(new GUIContent(BuildQueueDeckLabel()), _buttonStyle, GUILayout.Width(290f), GUILayout.Height(28f)))
-                {
-                    RefreshDeckOptions(true);
-                    _modeDropdownOpen = false;
-                    _deckDropdownOpen = !_deckDropdownOpen;
-                }
-
-                if (_deckDropdownOpen)
-                {
-                    _deckScrollPosition = GUILayout.BeginScrollView(_deckScrollPosition, GUILayout.Width(300f), GUILayout.Height(160f));
-                    DrawDeckOption(AutoDeckOption);
-
-                    if (_deckOptions.Count == 0)
-                    {
-                        GUILayout.Label(new GUIContent("未读取到卡组"), _statusStyle, GUILayout.Width(272f));
-                    }
-                    else
-                    {
-                        for (int index = 0; index < _deckOptions.Count; index++)
-                        {
-                            DrawDeckOption(_deckOptions[index]);
-                        }
-                    }
-
-                    GUILayout.EndScrollView();
-                }
-
-                GUILayout.Label(new GUIContent(BuildStatusLine()), _statusStyle);
-                GUILayout.EndArea();
             }
             finally
             {
@@ -242,7 +157,124 @@ namespace HsBattle
             _titleStyle.margin.top = 0;
             _titleStyle.margin.bottom = 4;
 
+            _textFieldStyle = new GUIStyle(GUI.skin.textField);
+            _textFieldStyle.fontSize = 12;
+            _textFieldStyle.alignment = TextAnchor.MiddleLeft;
+            _textFieldStyle.normal.textColor = Color.white;
+            _textFieldStyle.padding = new RectOffset(6, 6, 4, 4);
+            _textFieldStyle.margin.left = 0;
+            _textFieldStyle.margin.right = 6;
+            _textFieldStyle.margin.top = 0;
+            _textFieldStyle.margin.bottom = 4;
+
             _stylesReady = true;
+        }
+
+        private void DrawMainPanel()
+        {
+            GUILayout.BeginArea(new Rect(10f, 10f, 320f, 206f), GUIContent.none, _panelStyle);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("HsBattle"), _titleStyle, GUILayout.Width(214f), GUILayout.Height(24f));
+
+            if (GUILayout.Button(new GUIContent("缩小"), _buttonStyle, GUILayout.Width(68f), GUILayout.Height(24f)))
+            {
+                ToggleCollapsed();
+            }
+
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(new GUIContent(BuildAutomationLabel()), _buttonStyle, GUILayout.Width(152f), GUILayout.Height(28f)))
+            {
+                bool enable = !PluginConfig.AutomationFullyEnabledValue;
+                PluginConfig.SetAutomationEnabled(enable);
+                if (PluginConfig.isPluginEnable != null && enable)
+                {
+                    PluginConfig.isPluginEnable.Value = true;
+                }
+
+                ShowInfo(enable ? "已开启自动化" : "已暂停自动化");
+            }
+
+            if (GUILayout.Button(new GUIContent("立即匹配"), _buttonStyle, GUILayout.Width(132f), GUILayout.Height(28f)))
+            {
+                _controller?.RequestQueueNow();
+            }
+
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(new GUIContent(BuildQueueLabel()), _buttonStyle, GUILayout.Width(152f), GUILayout.Height(28f)))
+            {
+                ToggleQueue();
+            }
+
+            if (GUILayout.Button(new GUIContent(BuildBattleLabel()), _buttonStyle, GUILayout.Width(132f), GUILayout.Height(28f)))
+            {
+                ToggleBattle();
+            }
+
+            GUILayout.EndHorizontal();
+
+            if (GUILayout.Button(new GUIContent(_settingsOpen ? "关闭配置" : "打开配置"), _buttonStyle, GUILayout.Width(290f), GUILayout.Height(28f)))
+            {
+                ToggleSettingsPanel();
+            }
+
+            GUILayout.Label(new GUIContent(BuildQueueModeLabel(PluginConfig.queueMode != null ? PluginConfig.queueMode.Value : QueueMode.Standard)), _statusStyle);
+            GUILayout.Label(new GUIContent(BuildQueueDeckLabel()), _statusStyle);
+            GUILayout.Label(new GUIContent(BuildStatusLine()), _statusStyle);
+            GUILayout.EndArea();
+        }
+
+        private void DrawSettingsPanel()
+        {
+            GUILayout.BeginArea(new Rect(340f, 10f, 364f, 530f), GUIContent.none, _panelStyle);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("配置面板"), _titleStyle, GUILayout.Width(234f), GUILayout.Height(24f));
+
+            if (GUILayout.Button(new GUIContent("关闭"), _buttonStyle, GUILayout.Width(68f), GUILayout.Height(24f)))
+            {
+                ToggleSettingsPanel();
+            }
+
+            GUILayout.EndHorizontal();
+
+            _settingsScrollPosition = GUILayout.BeginScrollView(_settingsScrollPosition, GUILayout.Width(348f), GUILayout.Height(486f));
+
+            DrawSectionHeader("自动化");
+            DrawToggleRow("插件启用", PluginConfig.EnabledValue, TogglePluginEnabled);
+            DrawToggleRow("自动匹配", PluginConfig.autoQueueEnabled != null && PluginConfig.autoQueueEnabled.Value, ToggleQueue);
+            DrawToggleRow("自动对战", PluginConfig.autoBattleEnabled != null && PluginConfig.autoBattleEnabled.Value, ToggleBattle);
+            DrawToggleRow("自动留牌", PluginConfig.autoMulliganEnabled != null && PluginConfig.autoMulliganEnabled.Value, ToggleMulligan);
+            DrawToggleRow("防掉线踢出", PluginConfig.disableIdleKick != null && PluginConfig.disableIdleKick.Value, ToggleDisableIdleKick);
+            DrawToggleRow("自动确认弹窗", PluginConfig.autoConfirmDialogs != null && PluginConfig.autoConfirmDialogs.Value, ToggleAutoConfirmDialogs);
+            DrawToggleRow("错误后退出", PluginConfig.autoExitOnError != null && PluginConfig.autoExitOnError.Value, ToggleAutoExitOnError);
+            DrawToggleRow("跳过英雄开场", PluginConfig.skipHeroIntro != null && PluginConfig.skipHeroIntro.Value, ToggleSkipHeroIntro);
+            DrawToggleRow("记录决策日志", PluginConfig.logDecisions != null && PluginConfig.logDecisions.Value, ToggleLogDecisions);
+
+            DrawSectionHeader("匹配");
+            DrawQueueModeControls();
+            DrawDeckControls();
+            DrawIntInputRow("重试间隔(秒)", ref _queueRetryInput, ApplyQueueRetryInput);
+            DrawButtonRow("弹窗默认响应", PluginConfig.DescribePopupResponse(PluginConfig.PopupResponseValue), CyclePopupResponse);
+
+            DrawSectionHeader("战斗");
+            DrawIntInputRow("延迟下限(ms)", ref _delayMinInput, ApplyDelayInputs);
+            DrawIntInputRow("延迟上限(ms)", ref _delayMaxInput, ApplyDelayInputs);
+            DrawIntInputRow("打随从概率(%)", ref _attackMinionChanceInput, ApplyAttackMinionChanceInput);
+
+            DrawSectionHeader("日志");
+            DrawTextInputRow("结果日志路径", ref _matchLogPathInput, ApplyMatchLogPathInput);
+
+            DrawSectionHeader("热键");
+            GUILayout.Label(new GUIContent("切换自动化：" + ResolveHotkeyLabel(PluginConfig.toggleAutomationKey != null ? PluginConfig.toggleAutomationKey.Value.ToString() : string.Empty)), _statusStyle);
+            GUILayout.Label(new GUIContent("立即匹配：" + ResolveHotkeyLabel(PluginConfig.forceQueueKey != null ? PluginConfig.forceQueueKey.Value.ToString() : string.Empty)), _statusStyle);
+
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
         }
 
         private void ToggleCollapsed()
@@ -250,9 +282,24 @@ namespace HsBattle
             _collapsed = !_collapsed;
             if (_collapsed)
             {
+                _settingsOpen = false;
                 _modeDropdownOpen = false;
                 _deckDropdownOpen = false;
             }
+        }
+
+        private void ToggleSettingsPanel()
+        {
+            _settingsOpen = !_settingsOpen;
+            if (_settingsOpen)
+            {
+                SyncInputsFromConfig();
+                RefreshDeckOptions(true);
+                return;
+            }
+
+            _modeDropdownOpen = false;
+            _deckDropdownOpen = false;
         }
 
         private void ToggleQueue()
@@ -270,8 +317,7 @@ namespace HsBattle
 
             _modeDropdownOpen = false;
             _deckDropdownOpen = false;
-
-            ShowInfo(newValue ? "\u5df2\u5f00\u542f\u81ea\u52a8\u5339\u914d" : "\u5df2\u5173\u95ed\u81ea\u52a8\u5339\u914d");
+            ShowInfo(newValue ? "已开启自动匹配" : "已关闭自动匹配");
         }
 
         private void ToggleBattle()
@@ -294,54 +340,243 @@ namespace HsBattle
 
             _modeDropdownOpen = false;
             _deckDropdownOpen = false;
-            ShowInfo(newValue ? "\u5df2\u5f00\u542f\u81ea\u52a8\u5bf9\u6218" : "\u5df2\u5173\u95ed\u81ea\u52a8\u5bf9\u6218");
+            ShowInfo(newValue ? "已开启自动对战" : "已关闭自动对战");
+        }
+
+        private void TogglePluginEnabled()
+        {
+            if (PluginConfig.isPluginEnable == null)
+            {
+                return;
+            }
+
+            PluginConfig.isPluginEnable.Value = !PluginConfig.isPluginEnable.Value;
+            ShowInfo(PluginConfig.isPluginEnable.Value ? "已启用插件" : "已停用插件");
+        }
+
+        private void ToggleMulligan()
+        {
+            if (PluginConfig.autoMulliganEnabled == null)
+            {
+                return;
+            }
+
+            bool newValue = !PluginConfig.autoMulliganEnabled.Value;
+            if (PluginConfig.isPluginEnable != null && newValue)
+            {
+                PluginConfig.isPluginEnable.Value = true;
+            }
+
+            PluginConfig.autoMulliganEnabled.Value = newValue;
+            ShowInfo(newValue ? "已开启自动留牌" : "已关闭自动留牌");
+        }
+
+        private void ToggleDisableIdleKick()
+        {
+            if (PluginConfig.disableIdleKick == null)
+            {
+                return;
+            }
+
+            PluginConfig.disableIdleKick.Value = !PluginConfig.disableIdleKick.Value;
+            ShowInfo(PluginConfig.disableIdleKick.Value ? "已开启防掉线踢出" : "已关闭防掉线踢出");
+        }
+
+        private void ToggleAutoConfirmDialogs()
+        {
+            if (PluginConfig.autoConfirmDialogs == null)
+            {
+                return;
+            }
+
+            PluginConfig.autoConfirmDialogs.Value = !PluginConfig.autoConfirmDialogs.Value;
+            ShowInfo(PluginConfig.autoConfirmDialogs.Value ? "已开启自动确认弹窗" : "已关闭自动确认弹窗");
+        }
+
+        private void ToggleAutoExitOnError()
+        {
+            if (PluginConfig.autoExitOnError == null)
+            {
+                return;
+            }
+
+            PluginConfig.autoExitOnError.Value = !PluginConfig.autoExitOnError.Value;
+            ShowInfo(PluginConfig.autoExitOnError.Value ? "已开启错误后退出" : "已关闭错误后退出");
+        }
+
+        private void ToggleSkipHeroIntro()
+        {
+            if (PluginConfig.skipHeroIntro == null)
+            {
+                return;
+            }
+
+            PluginConfig.skipHeroIntro.Value = !PluginConfig.skipHeroIntro.Value;
+            ShowInfo(PluginConfig.skipHeroIntro.Value ? "已开启跳过英雄开场" : "已关闭跳过英雄开场");
+        }
+
+        private void ToggleLogDecisions()
+        {
+            if (PluginConfig.logDecisions == null)
+            {
+                return;
+            }
+
+            PluginConfig.logDecisions.Value = !PluginConfig.logDecisions.Value;
+            ShowInfo(PluginConfig.logDecisions.Value ? "已开启决策日志" : "已关闭决策日志");
         }
 
         private string BuildAutomationLabel()
         {
             if (!PluginConfig.EnabledValue)
             {
-                return "\u72b6\u6001\u5df2\u5173\u95ed";
+                return "状态已关闭";
             }
 
             return PluginConfig.AutomationFullyEnabledValue
-                ? "\u72b6\u6001\u5df2\u5f00\u542f"
-                : "\u72b6\u6001\u90e8\u5206\u5f00\u542f";
+                ? "状态已开启"
+                : "状态部分开启";
         }
 
         private static string BuildQueueLabel()
         {
-            return "\u81ea\u52a8\u5339\u914d\uff1a" + DescribeToggleState(PluginConfig.AutoQueueEnabledValue);
+            return "自动匹配：" + DescribeToggleState(PluginConfig.AutoQueueEnabledValue);
         }
 
         private static string BuildBattleLabel()
         {
-            return "\u81ea\u52a8\u5bf9\u6218\uff1a" + DescribeToggleState(PluginConfig.AutoBattleEnabledValue);
+            return "自动对战：" + DescribeToggleState(PluginConfig.AutoBattleEnabledValue);
         }
 
         private static string BuildQueueModeLabel(QueueMode mode)
         {
-            return "\u5339\u914d\u6a21\u5f0f\uff1a" + PluginConfig.DescribeQueueMode(mode);
+            return "匹配模式：" + PluginConfig.DescribeQueueMode(mode);
         }
 
         private string BuildQueueDeckLabel()
         {
             long deckId = PluginConfig.queueDeckId != null ? PluginConfig.queueDeckId.Value : 0L;
-            return "\u5339\u914d\u5361\u7ec4\uff1a" + ShortenLabel(ResolveDeckLabel(deckId), 18);
+            return "匹配卡组：" + ShortenLabel(ResolveDeckLabel(deckId), 18);
         }
 
         private string BuildStatusLine()
         {
             return string.Format(
-                "\u7559\u724c:{0}  \u6a21\u5f0f:{1}  {2}",
+                "留牌:{0}  模式:{1}  {2}",
                 DescribeToggleState(PluginConfig.AutoMulliganEnabledValue),
                 PluginConfig.DescribeQueueMode(PluginConfig.queueMode != null ? PluginConfig.queueMode.Value : QueueMode.Standard),
-                _controller != null ? _controller.GetOverlayStatusText() : "\u72b6\u6001:\u672a\u5c31\u7eea");
+                _controller != null ? _controller.GetOverlayStatusText() : "状态:未就绪");
         }
 
         private static string DescribeToggleState(bool enabled)
         {
-            return enabled ? "\u5f00" : "\u5173";
+            return enabled ? "开" : "关";
+        }
+
+        private void DrawSectionHeader(string title)
+        {
+            GUILayout.Space(4f);
+            GUILayout.Label(new GUIContent(title), _titleStyle, GUILayout.Width(320f), GUILayout.Height(22f));
+        }
+
+        private void DrawToggleRow(string label, bool value, Action toggleAction)
+        {
+            DrawButtonRow(label, value ? "开" : "关", toggleAction, value ? _buttonActiveStyle : _buttonStyle);
+        }
+
+        private void DrawButtonRow(string label, string buttonText, Action action, GUIStyle buttonStyle = null)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent(label), _statusStyle, GUILayout.Width(182f), GUILayout.Height(24f));
+
+            if (GUILayout.Button(new GUIContent(buttonText), buttonStyle ?? _buttonStyle, GUILayout.Width(118f), GUILayout.Height(24f)))
+            {
+                action?.Invoke();
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawIntInputRow(string label, ref string inputValue, Action applyAction)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent(label), _statusStyle, GUILayout.Width(150f), GUILayout.Height(24f));
+            inputValue = GUILayout.TextField(inputValue ?? string.Empty, _textFieldStyle, GUILayout.Width(86f), GUILayout.Height(24f));
+
+            if (GUILayout.Button(new GUIContent("应用"), _buttonStyle, GUILayout.Width(60f), GUILayout.Height(24f)))
+            {
+                applyAction?.Invoke();
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawTextInputRow(string label, ref string inputValue, Action applyAction)
+        {
+            GUILayout.Label(new GUIContent(label), _statusStyle, GUILayout.Width(320f), GUILayout.Height(20f));
+
+            GUILayout.BeginHorizontal();
+            inputValue = GUILayout.TextField(inputValue ?? string.Empty, _textFieldStyle, GUILayout.Width(224f), GUILayout.Height(24f));
+
+            if (GUILayout.Button(new GUIContent("应用"), _buttonStyle, GUILayout.Width(60f), GUILayout.Height(24f)))
+            {
+                applyAction?.Invoke();
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawQueueModeControls()
+        {
+            QueueMode selectedMode = PluginConfig.queueMode != null ? PluginConfig.queueMode.Value : QueueMode.Standard;
+            if (GUILayout.Button(new GUIContent(BuildQueueModeLabel(selectedMode)), _buttonStyle, GUILayout.Width(312f), GUILayout.Height(28f)))
+            {
+                _deckDropdownOpen = false;
+                _modeDropdownOpen = !_modeDropdownOpen;
+            }
+
+            if (_modeDropdownOpen)
+            {
+                for (int index = 0; index < QueueModes.Length; index++)
+                {
+                    QueueMode mode = QueueModes[index];
+                    GUIStyle buttonStyle = mode == selectedMode ? _buttonActiveStyle : _buttonStyle;
+                    if (GUILayout.Button(new GUIContent(PluginConfig.DescribeQueueMode(mode)), buttonStyle, GUILayout.Width(312f), GUILayout.Height(24f)))
+                    {
+                        SelectQueueMode(mode);
+                    }
+                }
+            }
+        }
+
+        private void DrawDeckControls()
+        {
+            if (GUILayout.Button(new GUIContent(BuildQueueDeckLabel()), _buttonStyle, GUILayout.Width(312f), GUILayout.Height(28f)))
+            {
+                RefreshDeckOptions(true);
+                _modeDropdownOpen = false;
+                _deckDropdownOpen = !_deckDropdownOpen;
+            }
+
+            if (_deckDropdownOpen)
+            {
+                _deckScrollPosition = GUILayout.BeginScrollView(_deckScrollPosition, GUILayout.Width(322f), GUILayout.Height(156f));
+                DrawDeckOption(AutoDeckOption);
+
+                if (_deckOptions.Count == 0)
+                {
+                    GUILayout.Label(new GUIContent("未读取到卡组"), _statusStyle, GUILayout.Width(294f));
+                }
+                else
+                {
+                    for (int index = 0; index < _deckOptions.Count; index++)
+                    {
+                        DrawDeckOption(_deckOptions[index]);
+                    }
+                }
+
+                GUILayout.EndScrollView();
+            }
         }
 
         private void SelectQueueMode(QueueMode mode)
@@ -353,14 +588,14 @@ namespace HsBattle
 
             _modeDropdownOpen = false;
             _deckDropdownOpen = false;
-            ShowInfo("\u5df2\u5207\u6362\u5339\u914d\u6a21\u5f0f\uff1a" + PluginConfig.DescribeQueueMode(mode));
+            ShowInfo("已切换匹配模式：" + PluginConfig.DescribeQueueMode(mode));
         }
 
         private void DrawDeckOption(QueueDeckInfo deckInfo)
         {
             long selectedDeckId = PluginConfig.queueDeckId != null ? PluginConfig.queueDeckId.Value : 0L;
             GUIStyle buttonStyle = deckInfo.Id == selectedDeckId ? _buttonActiveStyle : _buttonStyle;
-            if (GUILayout.Button(new GUIContent(deckInfo.DisplayName), buttonStyle, GUILayout.Width(272f), GUILayout.Height(24f)))
+            if (GUILayout.Button(new GUIContent(deckInfo.DisplayName), buttonStyle, GUILayout.Width(294f), GUILayout.Height(24f)))
             {
                 SelectQueueDeck(deckInfo);
             }
@@ -374,7 +609,7 @@ namespace HsBattle
             }
 
             _deckDropdownOpen = false;
-            ShowInfo("\u5df2\u5207\u6362\u5339\u914d\u5361\u7ec4\uff1a" + ResolveDeckLabel(deckInfo != null ? deckInfo.Id : 0L));
+            ShowInfo("已切换匹配卡组：" + ResolveDeckLabel(deckInfo != null ? deckInfo.Id : 0L));
         }
 
         private void RefreshDeckOptions(bool force)
@@ -406,6 +641,93 @@ namespace HsBattle
             return DeckUtils.DescribeQueueDeck(deckId);
         }
 
+        private void SyncInputsFromConfig()
+        {
+            _queueRetryInput = Mathf.RoundToInt(PluginConfig.QueueRetrySecondsValue).ToString();
+            _delayMinInput = PluginConfig.ActionDelayMinMsValue.ToString();
+            _delayMaxInput = PluginConfig.ActionDelayMaxMsValue.ToString();
+            _attackMinionChanceInput = PluginConfig.AttackMinionChancePercentValue.ToString();
+            _matchLogPathInput = PluginConfig.MatchLogPathValue;
+        }
+
+        private void ApplyQueueRetryInput()
+        {
+            int value;
+            if (!int.TryParse(_queueRetryInput, out value))
+            {
+                ShowInfo("重试间隔需输入整数");
+                SyncInputsFromConfig();
+                return;
+            }
+
+            PluginConfig.SetQueueRetrySeconds(value);
+            SyncInputsFromConfig();
+            ShowInfo("已更新匹配重试间隔");
+        }
+
+        private void ApplyDelayInputs()
+        {
+            int minDelay;
+            int maxDelay;
+            if (!int.TryParse(_delayMinInput, out minDelay) || !int.TryParse(_delayMaxInput, out maxDelay))
+            {
+                ShowInfo("延迟上下限需输入整数");
+                SyncInputsFromConfig();
+                return;
+            }
+
+            PluginConfig.SetActionDelayRangeMs(minDelay, maxDelay);
+            SyncInputsFromConfig();
+            ShowInfo(string.Format("动作延迟范围：{0}-{1}ms", PluginConfig.ActionDelayMinMsValue, PluginConfig.ActionDelayMaxMsValue));
+        }
+
+        private void ApplyAttackMinionChanceInput()
+        {
+            int value;
+            if (!int.TryParse(_attackMinionChanceInput, out value))
+            {
+                ShowInfo("打随从概率需输入整数");
+                SyncInputsFromConfig();
+                return;
+            }
+
+            PluginConfig.SetAttackMinionChancePercent(value);
+            SyncInputsFromConfig();
+            ShowInfo(string.Format("打随从概率：{0}%", PluginConfig.AttackMinionChancePercentValue));
+        }
+
+        private void ApplyMatchLogPathInput()
+        {
+            PluginConfig.SetMatchLogPath(_matchLogPathInput);
+            SyncInputsFromConfig();
+            ShowInfo("已更新结果日志路径");
+        }
+
+        private void CyclePopupResponse()
+        {
+            AlertPopupResponse nextResponse;
+            switch (PluginConfig.PopupResponseValue)
+            {
+                case AlertPopupResponse.Okay:
+                    nextResponse = AlertPopupResponse.Cancel;
+                    break;
+                case AlertPopupResponse.Cancel:
+                    nextResponse = AlertPopupResponse.Confirm;
+                    break;
+                default:
+                    nextResponse = AlertPopupResponse.Okay;
+                    break;
+            }
+
+            PluginConfig.SetPopupResponse(nextResponse);
+            ShowInfo("弹窗默认响应：" + PluginConfig.DescribePopupResponse(nextResponse));
+        }
+
+        private static string ResolveHotkeyLabel(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "未设置" : value;
+        }
+
         private static string ShortenLabel(string text, int maxLength)
         {
             if (string.IsNullOrEmpty(text) || text.Length <= maxLength || maxLength <= 3)
@@ -432,7 +754,7 @@ namespace HsBattle
                 return;
             }
 
-            Object.Destroy(texture);
+            UnityEngine.Object.Destroy(texture);
             texture = null;
         }
 

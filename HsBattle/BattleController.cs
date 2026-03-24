@@ -645,7 +645,7 @@ namespace HsBattle
                 return;
             }
 
-            if (Time.unscaledTime - _mulliganReadySinceAt < Mathf.Max(MulliganReadySettleSeconds, PluginConfig.ActionIntervalSeconds))
+            if (Time.unscaledTime - _mulliganReadySinceAt < Mathf.Max(MulliganReadySettleSeconds, PluginConfig.ActionDelayMaxSeconds))
             {
                 return;
             }
@@ -668,7 +668,7 @@ namespace HsBattle
 
                 mulliganManager.AutomaticContinueMulligan(false);
                 ResetMulliganProgress();
-                _postMulliganActionBlockedUntil = Time.unscaledTime + Mathf.Max(PostMulliganSettleSeconds, PluginConfig.ActionIntervalSeconds);
+                _postMulliganActionBlockedUntil = Time.unscaledTime + Mathf.Max(PostMulliganSettleSeconds, PluginConfig.RollActionDelaySeconds());
                 _nextActionAt = _postMulliganActionBlockedUntil;
                 return;
             }
@@ -697,7 +697,7 @@ namespace HsBattle
             }
 
             ResetMulliganProgress();
-            _postMulliganActionBlockedUntil = Time.unscaledTime + Mathf.Max(PostMulliganSettleSeconds, PluginConfig.ActionIntervalSeconds);
+            _postMulliganActionBlockedUntil = Time.unscaledTime + Mathf.Max(PostMulliganSettleSeconds, PluginConfig.RollActionDelaySeconds());
             _nextActionAt = _postMulliganActionBlockedUntil;
         }
 
@@ -869,7 +869,7 @@ namespace HsBattle
             TryHideChoiceUi();
             LogDecision("choice(random): " + string.Join(", ", selectedNames.ToArray()));
             ResetChoiceProgress();
-            _nextActionAt = Time.unscaledTime + PluginConfig.ActionIntervalSeconds;
+            ScheduleNextBattleAction();
             return true;
         }
 
@@ -1375,30 +1375,32 @@ namespace HsBattle
         private Entity ChooseEnemyTarget(Entity sourceEntity, List<Entity> enemyTargets)
         {
             Entity heroTarget = enemyTargets.FirstOrDefault(delegate (Entity item) { return item.IsHero(); });
-            if (heroTarget != null)
+            List<Entity> enemyMinions = enemyTargets
+                .Where(delegate (Entity item) { return item.IsMinion(); })
+                .ToList();
+
+            if (heroTarget != null && sourceEntity != null && sourceEntity.GetRealTimeAttack() >= heroTarget.GetCurrentHealth())
             {
                 return heroTarget;
             }
 
-            int attack = sourceEntity != null ? sourceEntity.GetRealTimeAttack() : 0;
-            Entity lethalTrade = enemyTargets
-                .Where(delegate (Entity item) { return item.IsMinion() && item.GetCurrentHealth() <= attack; })
-                .OrderBy(delegate (Entity item) { return item.GetCurrentHealth(); })
-                .ThenByDescending(delegate (Entity item) { return item.GetRealTimeAttack(); })
-                .FirstOrDefault();
-
-            if (lethalTrade != null)
+            Entity preferredMinion = ChoosePreferredEnemyMinionTarget(sourceEntity, enemyMinions);
+            if (preferredMinion == null)
             {
-                return lethalTrade;
+                return heroTarget ?? enemyTargets[0];
             }
 
-            Entity strongestMinion = enemyTargets
-                .Where(delegate (Entity item) { return item.IsMinion(); })
-                .OrderByDescending(delegate (Entity item) { return item.GetRealTimeAttack(); })
-                .ThenBy(delegate (Entity item) { return item.GetCurrentHealth(); })
-                .FirstOrDefault();
+            if (heroTarget == null)
+            {
+                return preferredMinion;
+            }
 
-            return strongestMinion ?? enemyTargets[0];
+            if (RollChance(PluginConfig.AttackMinionChancePercentValue))
+            {
+                return preferredMinion;
+            }
+
+            return heroTarget;
         }
 
         private Entity ChooseFriendlyTarget(List<Entity> friendlyTargets)
@@ -1458,7 +1460,77 @@ namespace HsBattle
             }
 
             LogDecision(action.Description);
-            _nextActionAt = Time.unscaledTime + PluginConfig.ActionIntervalSeconds;
+            ScheduleNextBattleAction();
+        }
+
+        private void ScheduleNextBattleAction()
+        {
+            _nextActionAt = Time.unscaledTime + PluginConfig.RollActionDelaySeconds();
+        }
+
+        private Entity ChoosePreferredEnemyMinionTarget(Entity sourceEntity, List<Entity> enemyMinions)
+        {
+            if (enemyMinions == null || enemyMinions.Count == 0)
+            {
+                return null;
+            }
+
+            int attack = sourceEntity != null ? sourceEntity.GetRealTimeAttack() : 0;
+            Entity lethalTrade = enemyMinions
+                .Where(delegate (Entity item) { return item.GetCurrentHealth() <= attack; })
+                .OrderBy(delegate (Entity item) { return item.GetCurrentHealth(); })
+                .ThenByDescending(delegate (Entity item) { return item.GetRealTimeAttack(); })
+                .FirstOrDefault();
+
+            if (lethalTrade != null)
+            {
+                return lethalTrade;
+            }
+
+            return enemyMinions
+                .OrderByDescending(delegate (Entity item) { return EvaluateEnemyMinionAttackPriority(sourceEntity, item); })
+                .ThenBy(delegate (Entity item) { return item.GetCurrentHealth(); })
+                .FirstOrDefault();
+        }
+
+        private int EvaluateEnemyHeroAttackPriority(Entity sourceEntity, Entity heroTarget)
+        {
+            int attack = sourceEntity != null ? sourceEntity.GetRealTimeAttack() : 0;
+            int heroHealth = heroTarget != null ? heroTarget.GetCurrentHealth() : 30;
+            int lowHealthBonus = heroHealth <= 15 ? (16 - heroHealth) * 8 : 0;
+            int pressureBonus = attack > 0 && heroHealth <= attack * 2 ? 30 : 0;
+            return 120 + attack * 4 + lowHealthBonus + pressureBonus;
+        }
+
+        private int EvaluateEnemyMinionAttackPriority(Entity sourceEntity, Entity target)
+        {
+            if (target == null)
+            {
+                return int.MinValue;
+            }
+
+            int sourceAttack = sourceEntity != null ? sourceEntity.GetRealTimeAttack() : 0;
+            int sourceHealth = sourceEntity != null ? sourceEntity.GetCurrentHealth() : 0;
+            int targetAttack = target.GetRealTimeAttack();
+            int targetHealth = target.GetCurrentHealth();
+            int lethalBonus = sourceAttack > 0 && targetHealth <= sourceAttack ? 40 : 0;
+            int survivalBonus = sourceHealth <= 0 || sourceHealth > targetAttack ? 15 : 0;
+            return 80 + targetAttack * 12 + targetHealth * 3 + lethalBonus + survivalBonus;
+        }
+
+        private bool RollChance(int percent)
+        {
+            if (percent <= 0)
+            {
+                return false;
+            }
+
+            if (percent >= 100)
+            {
+                return true;
+            }
+
+            return UnityEngine.Random.Range(0, 100) < percent;
         }
 
         private void NotifySubOptionSelected(GameState gameState, ActionPlan action)
