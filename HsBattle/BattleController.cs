@@ -8,11 +8,16 @@ namespace HsBattle
 {
     internal sealed class BattleController
     {
+        private const float HubSceneSettleSeconds = 4f;
         private const float ModeSwitchSettleSeconds = 1.5f;
         private const float DeckSelectionSettleSeconds = 0.8f;
+        private const float ChoiceSettleSeconds = 2f;
+        private const float ChoiceForceSelectSeconds = 4.5f;
         private const float MulliganReadySettleSeconds = 2f;
         private const float MulliganConfirmDelaySeconds = 0.4f;
         private const float PostMulliganSettleSeconds = 1.25f;
+        private static readonly MethodInfo GetFriendlyChoiceStateMethod = typeof(ChoiceCardMgr).GetMethod("GetFriendlyChoiceState", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ConcealChoicesFromInputMethod = typeof(ChoiceCardMgr).GetMethod("ConcealChoicesFromInput", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
         private bool _forceQueueRequested;
         private bool _queueReturnToHubPending;
@@ -22,14 +27,17 @@ namespace HsBattle
         private float _nextQueueAttemptAt;
         private float _nextActionAt;
         private float _postMulliganActionBlockedUntil;
+        private float _choiceReadySinceAt;
         private float _mulliganReadySinceAt;
         private float _mulliganHoldIssuedAt;
         private float _mulliganConfirmReadySinceAt;
         private float _deckSelectionWaitStartedAt;
         private float _modeSwitchWaitStartedAt;
         private float _modeSwitchSettledAt;
+        private float _hubSettleWaitStartedAt;
         private float _deckReadySinceAt;
         private float _nextNavigationAttemptAt;
+        private int _choiceSignature;
 
         private sealed class ActionPlan
         {
@@ -83,9 +91,16 @@ namespace HsBattle
         public void NotifyGameEnded()
         {
             _nextActionAt = Time.unscaledTime + 2f;
-            _nextQueueAttemptAt = Time.unscaledTime + 2f;
             _postMulliganActionBlockedUntil = 0f;
+            ResetChoiceProgress();
             ResetMulliganProgress();
+
+            if (PluginConfig.AutoQueueEnabledValue || _forceQueueRequested)
+            {
+                ArmInitialQueueSetup();
+            }
+
+            _nextQueueAttemptAt = Time.unscaledTime + 2f;
         }
 
         private void HandleHotkeys()
@@ -143,7 +158,14 @@ namespace HsBattle
                 return;
             }
 
-            if (sceneMgr.IsTransitioning() || sceneMgr.IsInGame() || gameMgr.IsFindingGame() || gameMgr.IsSpectator())
+            GameState gameState = GameState.Get();
+            bool canExitFinishedGame = _queueReturnToHubPending
+                && sceneMgr.IsInGame()
+                && gameState != null
+                && gameState.IsGameCreated()
+                && gameState.IsGameOver();
+
+            if (sceneMgr.IsTransitioning() || gameMgr.IsFindingGame() || gameMgr.IsSpectator() || (sceneMgr.IsInGame() && !canExitFinishedGame))
             {
                 return;
             }
@@ -195,6 +217,7 @@ namespace HsBattle
             _deckSelectionWaitStartedAt = 0f;
             _modeSwitchWaitStartedAt = 0f;
             _modeSwitchSettledAt = 0f;
+            _hubSettleWaitStartedAt = 0f;
             _deckReadySinceAt = 0f;
             _nextNavigationAttemptAt = 0f;
             _nextQueueAttemptAt = 0f;
@@ -206,6 +229,7 @@ namespace HsBattle
             _deckSelectionWaitStartedAt = 0f;
             _modeSwitchWaitStartedAt = 0f;
             _modeSwitchSettledAt = 0f;
+            _hubSettleWaitStartedAt = 0f;
             _deckReadySinceAt = 0f;
             _nextNavigationAttemptAt = 0f;
         }
@@ -220,10 +244,20 @@ namespace HsBattle
             }
 
             SceneMgr.Mode currentMode = sceneMgr.GetMode();
+            if (currentMode != SceneMgr.Mode.HUB)
+            {
+                _hubSettleWaitStartedAt = 0f;
+            }
+
             if (_queueReturnToHubPending)
             {
                 if (currentMode == SceneMgr.Mode.HUB)
                 {
+                    if (!WaitForHubSceneToSettle())
+                    {
+                        return false;
+                    }
+
                     _queueReturnToHubPending = false;
                     _nextNavigationAttemptAt = 0f;
                 }
@@ -439,6 +473,7 @@ namespace HsBattle
             _deckSelectionWaitStartedAt = 0f;
             _modeSwitchWaitStartedAt = 0f;
             _modeSwitchSettledAt = 0f;
+            _hubSettleWaitStartedAt = 0f;
             _deckReadySinceAt = 0f;
             _nextNavigationAttemptAt = 0f;
             _nextQueueAttemptAt = Time.unscaledTime + 2f;
@@ -541,6 +576,25 @@ namespace HsBattle
 
             _modeSwitchWaitStartedAt = 0f;
             _modeSwitchSettledAt = 0f;
+            return true;
+        }
+
+        private bool WaitForHubSceneToSettle()
+        {
+            if (_hubSettleWaitStartedAt <= 0f)
+            {
+                _hubSettleWaitStartedAt = Time.unscaledTime;
+                _nextQueueAttemptAt = Time.unscaledTime + 0.5f;
+                return false;
+            }
+
+            if (Time.unscaledTime - _hubSettleWaitStartedAt < HubSceneSettleSeconds)
+            {
+                _nextQueueAttemptAt = Time.unscaledTime + 0.25f;
+                return false;
+            }
+
+            _hubSettleWaitStartedAt = 0f;
             return true;
         }
 
@@ -658,12 +712,14 @@ namespace HsBattle
             GameState gameState = GameState.Get();
             if (gameMgr == null || gameState == null)
             {
+                ResetChoiceProgress();
                 return;
             }
 
             MulliganManager mulliganManager = MulliganManager.Get();
             if (mulliganManager != null && (mulliganManager.IsMulliganActive() || mulliganManager.IsMulliganIntroActive()))
             {
+                ResetChoiceProgress();
                 return;
             }
 
@@ -674,22 +730,31 @@ namespace HsBattle
 
             if (gameMgr.IsSpectator() || gameMgr.IsBattlegrounds() || gameMgr.IsMercenaries())
             {
+                ResetChoiceProgress();
                 return;
             }
 
-            if (!gameState.IsGameCreated() || gameState.IsGameOver() || gameState.IsBusy() || gameState.IsMulliganManagerActive())
+            if (!gameState.IsGameCreated() || gameState.IsGameOver() || gameState.IsMulliganManagerActive())
             {
-                return;
-            }
-
-            if (!gameState.IsFriendlySidePlayerTurn() && !gameState.IsInChoiceMode())
-            {
+                ResetChoiceProgress();
                 return;
             }
 
             if (gameState.IsInChoiceMode())
             {
                 TryHandleChoice(gameState);
+                return;
+            }
+
+            ResetChoiceProgress();
+
+            if (gameState.IsBusy())
+            {
+                return;
+            }
+
+            if (!gameState.IsFriendlySidePlayerTurn())
+            {
                 return;
             }
 
@@ -710,13 +775,40 @@ namespace HsBattle
 
         private bool TryHandleChoice(GameState gameState)
         {
-            if (gameState == null || !gameState.IsInChoiceMode() || gameState.MustWaitForChoices())
+            if (gameState == null || !gameState.IsInChoiceMode())
             {
+                ResetChoiceProgress();
                 return false;
             }
 
             Network.EntityChoices choices = gameState.GetFriendlyEntityChoices();
             if (choices == null || choices.Entities == null || choices.Entities.Count == 0)
+            {
+                ResetChoiceProgress();
+                return false;
+            }
+
+            int choiceSignature = ComputeChoiceSignature(choices);
+            if (_choiceSignature != choiceSignature)
+            {
+                _choiceSignature = choiceSignature;
+                _choiceReadySinceAt = Time.unscaledTime;
+                return false;
+            }
+
+            if (_choiceReadySinceAt <= 0f)
+            {
+                _choiceReadySinceAt = Time.unscaledTime;
+                return false;
+            }
+
+            float choiceAge = Time.unscaledTime - _choiceReadySinceAt;
+            if (choiceAge < ChoiceSettleSeconds)
+            {
+                return false;
+            }
+
+            if (ShouldWaitForChoiceUi(gameState, choiceAge))
             {
                 return false;
             }
@@ -746,15 +838,12 @@ namespace HsBattle
 
             if (rankedChoices.Count == 0)
             {
+                ResetChoiceProgress();
                 return false;
             }
 
-            rankedChoices.Sort(delegate (Entity left, Entity right)
-            {
-                return EvaluateChoiceEntity(right).CompareTo(EvaluateChoiceEntity(left));
-            });
-
             int selectCount = Mathf.Clamp(requiredCount, 1, Mathf.Min(maxCount, rankedChoices.Count));
+            ShuffleEntities(rankedChoices);
             ClearChosenEntities(gameState);
 
             List<string> selectedNames = new List<string>();
@@ -772,14 +861,106 @@ namespace HsBattle
             if (selectedNames.Count < requiredCount)
             {
                 ClearChosenEntities(gameState);
+                ResetChoiceProgress();
                 return false;
             }
 
             gameState.SendChoices();
             TryHideChoiceUi();
-            LogDecision("choice: " + string.Join(", ", selectedNames.ToArray()));
+            LogDecision("choice(random): " + string.Join(", ", selectedNames.ToArray()));
+            ResetChoiceProgress();
             _nextActionAt = Time.unscaledTime + PluginConfig.ActionIntervalSeconds;
             return true;
+        }
+
+        private void ResetChoiceProgress()
+        {
+            _choiceReadySinceAt = 0f;
+            _choiceSignature = 0;
+        }
+
+        private bool ShouldWaitForChoiceUi(GameState gameState, float choiceAge)
+        {
+            if (gameState == null)
+            {
+                return true;
+            }
+
+            if (choiceAge >= ChoiceForceSelectSeconds)
+            {
+                return false;
+            }
+
+            if (gameState.MustWaitForChoices())
+            {
+                return true;
+            }
+
+            ChoiceCardMgr choiceCardMgr = ChoiceCardMgr.Get();
+            if (choiceCardMgr == null)
+            {
+                return false;
+            }
+
+            if (choiceCardMgr.IsFriendlyWaitingToStartChoices() || choiceCardMgr.IsWaitingToShowSubOptions())
+            {
+                return true;
+            }
+
+            if (!choiceCardMgr.IsFriendlyShown() && !choiceCardMgr.HasFriendlyChoices())
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private int ComputeChoiceSignature(Network.EntityChoices choices)
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + choices.CountMin;
+                hash = hash * 31 + choices.CountMax;
+
+                if (choices.Entities != null)
+                {
+                    List<int> entityIds = new List<int>(choices.Entities);
+                    entityIds.Sort();
+                    for (int i = 0; i < entityIds.Count; i++)
+                    {
+                        hash = hash * 31 + entityIds[i];
+                    }
+                }
+
+                if (choices.UnchoosableEntities != null)
+                {
+                    List<int> blockedIds = new List<int>(choices.UnchoosableEntities);
+                    blockedIds.Sort();
+                    for (int i = 0; i < blockedIds.Count; i++)
+                    {
+                        hash = hash * 31 + blockedIds[i];
+                    }
+                }
+
+                return hash;
+            }
+        }
+
+        private void ShuffleEntities(List<Entity> entities)
+        {
+            if (entities == null || entities.Count <= 1)
+            {
+                return;
+            }
+
+            for (int i = entities.Count - 1; i > 0; i--)
+            {
+                int swapIndex = UnityEngine.Random.Range(0, i + 1);
+                Entity current = entities[i];
+                entities[i] = entities[swapIndex];
+                entities[swapIndex] = current;
+            }
         }
 
         private bool ShouldWaitForMulliganCardsToBeProcessed(MulliganManager mulliganManager)
@@ -1331,9 +1512,18 @@ namespace HsBattle
 
             try
             {
-                MethodInfo method = typeof(ChoiceCardMgr).GetMethod(
-                    "HideChoiceUI",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
+                object choiceState = GetFriendlyChoiceStateMethod != null
+                    ? GetFriendlyChoiceStateMethod.Invoke(choiceCardMgr, null)
+                    : null;
+                GameState gameState = GameState.Get();
+
+                if (choiceState != null && gameState != null && ConcealChoicesFromInputMethod != null)
+                {
+                    ConcealChoicesFromInputMethod.Invoke(choiceCardMgr, new object[] { gameState.GetFriendlyPlayerId(), choiceState });
+                    return;
+                }
+
+                MethodInfo method = typeof(ChoiceCardMgr).GetMethod("HideChoiceUI", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
                 if (method != null)
                 {
@@ -1634,6 +1824,12 @@ namespace HsBattle
 
             if (_queueReturnToHubPending)
             {
+                SceneMgr pendingSceneMgr = SceneMgr.Get();
+                if (pendingSceneMgr != null && !pendingSceneMgr.IsTransitioning() && pendingSceneMgr.GetMode() == SceneMgr.Mode.HUB)
+                {
+                    return "\u7b49\u5f85\u4e3b\u754c\u9762";
+                }
+
                 return "\u56de\u4e3b\u754c\u9762";
             }
 

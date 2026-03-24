@@ -27,7 +27,9 @@ namespace HsBattle
         private GUIStyle _buttonStyle;
         private GUIStyle _buttonActiveStyle;
         private GUIStyle _statusStyle;
+        private GUIStyle _titleStyle;
         private bool _stylesReady;
+        private bool _collapsed;
         private bool _modeDropdownOpen;
         private bool _deckDropdownOpen;
         private float _nextDeckRefreshAt;
@@ -57,7 +59,17 @@ namespace HsBattle
                 GUI.depth = -1000;
                 GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1f));
 
-                float panelHeight = 156f;
+                if (_collapsed)
+                {
+                    if (GUI.Button(new Rect(10f, 10f, 34f, 26f), new GUIContent("展"), _buttonStyle))
+                    {
+                        ToggleCollapsed();
+                    }
+
+                    return;
+                }
+
+                float panelHeight = 184f;
                 if (_modeDropdownOpen)
                 {
                     panelHeight += 82f;
@@ -69,6 +81,16 @@ namespace HsBattle
                 }
 
                 GUILayout.BeginArea(new Rect(10f, 10f, 320f, panelHeight), GUIContent.none, _panelStyle);
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(new GUIContent("HsBattle"), _titleStyle, GUILayout.Width(214f), GUILayout.Height(24f));
+
+                if (GUILayout.Button(new GUIContent(_collapsed ? "展开" : "缩小"), _buttonStyle, GUILayout.Width(68f), GUILayout.Height(24f)))
+                {
+                    ToggleCollapsed();
+                }
+
+                GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button(new GUIContent(BuildAutomationLabel()), _buttonStyle, GUILayout.Width(152f), GUILayout.Height(28f)))
@@ -213,7 +235,24 @@ namespace HsBattle
             _statusStyle.margin.top = 2;
             _statusStyle.margin.bottom = 0;
 
+            _titleStyle = new GUIStyle(_statusStyle);
+            _titleStyle.fontSize = 14;
+            _titleStyle.fontStyle = FontStyle.Bold;
+            _titleStyle.alignment = TextAnchor.MiddleLeft;
+            _titleStyle.margin.top = 0;
+            _titleStyle.margin.bottom = 4;
+
             _stylesReady = true;
+        }
+
+        private void ToggleCollapsed()
+        {
+            _collapsed = !_collapsed;
+            if (_collapsed)
+            {
+                _modeDropdownOpen = false;
+                _deckDropdownOpen = false;
+            }
         }
 
         private void ToggleQueue()
