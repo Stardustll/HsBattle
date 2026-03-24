@@ -1,4 +1,5 @@
-/.vs
-./obj
-./Release
-/.dotnet
+/.vs/
+/.dotnet/
+**/bin/
+**/obj/
+**/Release/
