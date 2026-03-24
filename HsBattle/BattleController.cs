@@ -13,11 +13,19 @@ namespace HsBattle
         private const float DeckSelectionSettleSeconds = 0.8f;
         private const float ChoiceSettleSeconds = 2f;
         private const float ChoiceForceSelectSeconds = 4.5f;
+        private const float EndGameContinueInitialDelaySeconds = 1.2f;
+        private const float EndGameContinueIntervalSeconds = 0.6f;
+        private const float EndGameForceCloseSeconds = 8f;
         private const float MulliganReadySettleSeconds = 2f;
         private const float MulliganConfirmDelaySeconds = 0.4f;
         private const float PostMulliganSettleSeconds = 1.25f;
         private static readonly MethodInfo GetFriendlyChoiceStateMethod = typeof(ChoiceCardMgr).GetMethod("GetFriendlyChoiceState", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo ConcealChoicesFromInputMethod = typeof(ChoiceCardMgr).GetMethod("ConcealChoicesFromInput", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo EndGameContinueEventsMethod = typeof(EndGameScreen).GetMethod("ContinueEvents", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo EndGameIsDoneDisplayingRewardsMethod = typeof(EndGameScreen).GetMethod("IsDoneDisplayingRewards", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo EndGameIsInputBlockedMethod = typeof(EndGameScreen).GetMethod("IsInputBlocked", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo EndGameIsPlayingBlockingAnimMethod = typeof(EndGameScreen).GetMethod("IsPlayingBlockingAnim", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo EndGameBackToModeMethod = typeof(EndGameScreen).GetMethod("BackToMode", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
         private bool _forceQueueRequested;
         private bool _queueReturnToHubPending;
@@ -31,11 +39,13 @@ namespace HsBattle
         private float _mulliganReadySinceAt;
         private float _mulliganHoldIssuedAt;
         private float _mulliganConfirmReadySinceAt;
+        private float _gameEndedAt;
         private float _deckSelectionWaitStartedAt;
         private float _modeSwitchWaitStartedAt;
         private float _modeSwitchSettledAt;
         private float _hubSettleWaitStartedAt;
         private float _deckReadySinceAt;
+        private float _nextEndGameContinueAt;
         private float _nextNavigationAttemptAt;
         private int _choiceSignature;
 
@@ -83,6 +93,7 @@ namespace HsBattle
                 return;
             }
 
+            TryHandleEndGameScreen();
             TryQueue();
             TryHandleMulligan();
             TryHandleBattle();
@@ -94,6 +105,8 @@ namespace HsBattle
             _postMulliganActionBlockedUntil = 0f;
             ResetChoiceProgress();
             ResetMulliganProgress();
+            _gameEndedAt = Time.unscaledTime;
+            _nextEndGameContinueAt = Time.unscaledTime + EndGameContinueInitialDelaySeconds;
 
             if (PluginConfig.AutoQueueEnabledValue || _forceQueueRequested)
             {
@@ -101,6 +114,164 @@ namespace HsBattle
             }
 
             _nextQueueAttemptAt = Time.unscaledTime + 2f;
+        }
+
+        private void TryHandleEndGameScreen()
+        {
+            if ((!PluginConfig.AutoQueueEnabledValue && !_forceQueueRequested) || Time.unscaledTime < _nextEndGameContinueAt)
+            {
+                return;
+            }
+
+            SceneMgr sceneMgr = SceneMgr.Get();
+            GameState gameState = GameState.Get();
+            EndGameScreen endGameScreen = EndGameScreen.Get();
+            bool inFinishedGame = sceneMgr != null
+                && sceneMgr.IsInGame()
+                && gameState != null
+                && gameState.IsGameCreated()
+                && gameState.IsGameOver();
+
+            if (!inFinishedGame || endGameScreen == null)
+            {
+                if (!inFinishedGame && endGameScreen == null)
+                {
+                    ResetEndGameProgress();
+                }
+
+                return;
+            }
+
+            if (IsEndGameInputBlocked(endGameScreen) || IsEndGameBlockingAnimationPlaying(endGameScreen))
+            {
+                _nextEndGameContinueAt = Time.unscaledTime + 0.35f;
+                return;
+            }
+
+            bool advanced = InvokeEndGameContinueEvents(endGameScreen);
+            if (advanced)
+            {
+                _nextEndGameContinueAt = Time.unscaledTime + EndGameContinueIntervalSeconds;
+                return;
+            }
+
+            if (IsEndGameDone(endGameScreen) || ShouldForceCloseEndGameScreen())
+            {
+                ReturnEndGameScreenToHub(endGameScreen);
+                _nextEndGameContinueAt = Time.unscaledTime + 1f;
+            }
+            else
+            {
+                _nextEndGameContinueAt = Time.unscaledTime + EndGameContinueIntervalSeconds;
+            }
+        }
+
+        private void ResetEndGameProgress()
+        {
+            _gameEndedAt = 0f;
+            _nextEndGameContinueAt = 0f;
+        }
+
+        private bool InvokeEndGameContinueEvents(EndGameScreen endGameScreen)
+        {
+            if (endGameScreen == null || EndGameContinueEventsMethod == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                object result = EndGameContinueEventsMethod.Invoke(endGameScreen, null);
+                bool advanced = result is bool && (bool)result;
+                if (advanced)
+                {
+                    Utils.MyLogger(BepInEx.Logging.LogLevel.Info, "HsBattle advanced end game screen.");
+                }
+
+                return advanced;
+            }
+            catch (Exception ex)
+            {
+                Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HsBattle could not advance end game screen: " + ex.Message);
+                return false;
+            }
+        }
+
+        private bool IsEndGameDone(EndGameScreen endGameScreen)
+        {
+            if (endGameScreen == null || EndGameIsDoneDisplayingRewardsMethod == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                object result = EndGameIsDoneDisplayingRewardsMethod.Invoke(endGameScreen, null);
+                return result is bool && (bool)result;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsEndGameInputBlocked(EndGameScreen endGameScreen)
+        {
+            if (endGameScreen == null || EndGameIsInputBlockedMethod == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                object result = EndGameIsInputBlockedMethod.Invoke(endGameScreen, null);
+                return result is bool && (bool)result;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsEndGameBlockingAnimationPlaying(EndGameScreen endGameScreen)
+        {
+            if (endGameScreen == null || EndGameIsPlayingBlockingAnimMethod == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                object result = EndGameIsPlayingBlockingAnimMethod.Invoke(endGameScreen, null);
+                return result is bool && (bool)result;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool ShouldForceCloseEndGameScreen()
+        {
+            return _gameEndedAt > 0f && Time.unscaledTime - _gameEndedAt >= EndGameForceCloseSeconds;
+        }
+
+        private void ReturnEndGameScreenToHub(EndGameScreen endGameScreen)
+        {
+            if (endGameScreen == null || EndGameBackToModeMethod == null)
+            {
+                return;
+            }
+
+            try
+            {
+                EndGameBackToModeMethod.Invoke(endGameScreen, new object[] { SceneMgr.Mode.HUB });
+                Utils.MyLogger(BepInEx.Logging.LogLevel.Info, "HsBattle returned to hub from end game screen.");
+            }
+            catch (Exception ex)
+            {
+                Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HsBattle could not return to hub from end game screen: " + ex.Message);
+            }
         }
 
         private void HandleHotkeys()

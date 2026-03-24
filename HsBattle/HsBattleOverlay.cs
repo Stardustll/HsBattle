@@ -172,7 +172,18 @@ namespace HsBattle
 
         private void DrawMainPanel()
         {
-            GUILayout.BeginArea(new Rect(10f, 10f, 320f, 206f), GUIContent.none, _panelStyle);
+            float panelHeight = 234f;
+            if (_modeDropdownOpen)
+            {
+                panelHeight += 82f;
+            }
+
+            if (_deckDropdownOpen)
+            {
+                panelHeight += 172f;
+            }
+
+            GUILayout.BeginArea(new Rect(10f, 10f, 320f, panelHeight), GUIContent.none, _panelStyle);
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("HsBattle"), _titleStyle, GUILayout.Width(214f), GUILayout.Height(24f));
@@ -222,8 +233,8 @@ namespace HsBattle
                 ToggleSettingsPanel();
             }
 
-            GUILayout.Label(new GUIContent(BuildQueueModeLabel(PluginConfig.queueMode != null ? PluginConfig.queueMode.Value : QueueMode.Standard)), _statusStyle);
-            GUILayout.Label(new GUIContent(BuildQueueDeckLabel()), _statusStyle);
+            DrawQueueModeControls(290f, 290f);
+            DrawDeckControls(290f, 300f, 272f);
             GUILayout.Label(new GUIContent(BuildStatusLine()), _statusStyle);
             GUILayout.EndArea();
         }
@@ -256,8 +267,6 @@ namespace HsBattle
             DrawToggleRow("记录决策日志", PluginConfig.logDecisions != null && PluginConfig.logDecisions.Value, ToggleLogDecisions);
 
             DrawSectionHeader("匹配");
-            DrawQueueModeControls();
-            DrawDeckControls();
             DrawIntInputRow("重试间隔(秒)", ref _queueRetryInput, ApplyQueueRetryInput);
             DrawButtonRow("弹窗默认响应", PluginConfig.DescribePopupResponse(PluginConfig.PopupResponseValue), CyclePopupResponse);
 
@@ -526,10 +535,10 @@ namespace HsBattle
             GUILayout.EndHorizontal();
         }
 
-        private void DrawQueueModeControls()
+        private void DrawQueueModeControls(float buttonWidth, float optionWidth)
         {
             QueueMode selectedMode = PluginConfig.queueMode != null ? PluginConfig.queueMode.Value : QueueMode.Standard;
-            if (GUILayout.Button(new GUIContent(BuildQueueModeLabel(selectedMode)), _buttonStyle, GUILayout.Width(312f), GUILayout.Height(28f)))
+            if (GUILayout.Button(new GUIContent(BuildQueueModeLabel(selectedMode)), _buttonStyle, GUILayout.Width(buttonWidth), GUILayout.Height(28f)))
             {
                 _deckDropdownOpen = false;
                 _modeDropdownOpen = !_modeDropdownOpen;
@@ -541,7 +550,7 @@ namespace HsBattle
                 {
                     QueueMode mode = QueueModes[index];
                     GUIStyle buttonStyle = mode == selectedMode ? _buttonActiveStyle : _buttonStyle;
-                    if (GUILayout.Button(new GUIContent(PluginConfig.DescribeQueueMode(mode)), buttonStyle, GUILayout.Width(312f), GUILayout.Height(24f)))
+                    if (GUILayout.Button(new GUIContent(PluginConfig.DescribeQueueMode(mode)), buttonStyle, GUILayout.Width(optionWidth), GUILayout.Height(24f)))
                     {
                         SelectQueueMode(mode);
                     }
@@ -549,9 +558,9 @@ namespace HsBattle
             }
         }
 
-        private void DrawDeckControls()
+        private void DrawDeckControls(float buttonWidth, float scrollWidth, float optionWidth)
         {
-            if (GUILayout.Button(new GUIContent(BuildQueueDeckLabel()), _buttonStyle, GUILayout.Width(312f), GUILayout.Height(28f)))
+            if (GUILayout.Button(new GUIContent(BuildQueueDeckLabel()), _buttonStyle, GUILayout.Width(buttonWidth), GUILayout.Height(28f)))
             {
                 RefreshDeckOptions(true);
                 _modeDropdownOpen = false;
@@ -560,18 +569,18 @@ namespace HsBattle
 
             if (_deckDropdownOpen)
             {
-                _deckScrollPosition = GUILayout.BeginScrollView(_deckScrollPosition, GUILayout.Width(322f), GUILayout.Height(156f));
-                DrawDeckOption(AutoDeckOption);
+                _deckScrollPosition = GUILayout.BeginScrollView(_deckScrollPosition, GUILayout.Width(scrollWidth), GUILayout.Height(156f));
+                DrawDeckOption(AutoDeckOption, optionWidth);
 
                 if (_deckOptions.Count == 0)
                 {
-                    GUILayout.Label(new GUIContent("未读取到卡组"), _statusStyle, GUILayout.Width(294f));
+                    GUILayout.Label(new GUIContent("未读取到卡组"), _statusStyle, GUILayout.Width(optionWidth));
                 }
                 else
                 {
                     for (int index = 0; index < _deckOptions.Count; index++)
                     {
-                        DrawDeckOption(_deckOptions[index]);
+                        DrawDeckOption(_deckOptions[index], optionWidth);
                     }
                 }
 
@@ -591,11 +600,11 @@ namespace HsBattle
             ShowInfo("已切换匹配模式：" + PluginConfig.DescribeQueueMode(mode));
         }
 
-        private void DrawDeckOption(QueueDeckInfo deckInfo)
+        private void DrawDeckOption(QueueDeckInfo deckInfo, float optionWidth)
         {
             long selectedDeckId = PluginConfig.queueDeckId != null ? PluginConfig.queueDeckId.Value : 0L;
             GUIStyle buttonStyle = deckInfo.Id == selectedDeckId ? _buttonActiveStyle : _buttonStyle;
-            if (GUILayout.Button(new GUIContent(deckInfo.DisplayName), buttonStyle, GUILayout.Width(294f), GUILayout.Height(24f)))
+            if (GUILayout.Button(new GUIContent(deckInfo.DisplayName), buttonStyle, GUILayout.Width(optionWidth), GUILayout.Height(24f)))
             {
                 SelectQueueDeck(deckInfo);
             }
