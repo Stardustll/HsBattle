@@ -4,3 +4,8 @@
 **/obj/
 **/Release/
 **/策略/
+/.worktrees/
+/.dotnet-home/.dotnet
+/docs/superpowers
+/tests
+/.worktrees/
