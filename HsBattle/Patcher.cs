@@ -1,8 +1,6 @@
 using HarmonyLib;
 using System;
-using System.Collections.Generic;
 using System.Reflection;
-using System.Reflection.Emit;
 
 namespace HsBattle
 {
@@ -49,20 +47,14 @@ namespace HsBattle
         [HarmonyPatch(typeof(InactivePlayerKicker), "SetShouldCheckForInactivity")]
         public static void PatchSetShouldCheckForInactivity(ref bool check)
         {
-            if (PluginConfig.DisableIdleKickValue)
-            {
-                check = false;
-            }
+            check = false;
         }
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(InactivePlayerKicker), "Update")]
         public static void PatchInactivePlayerKickerUpdate()
         {
-            if (PluginConfig.DisableIdleKickValue)
-            {
-                InactivePlayerKicker.Get()?.SetShouldCheckForInactivity(false);
-            }
+            InactivePlayerKicker.Get()?.SetShouldCheckForInactivity(false);
         }
 
         [HarmonyPrefix]
@@ -79,56 +71,6 @@ namespace HsBattle
             Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HsBattle exiting after a fatal reconnect error.");
             Utils.Quit(1);
             return false;
-        }
-
-        [HarmonyPrefix]
-        [HarmonyPatch(typeof(AlertPopup), "Show")]
-        public static bool PatchAlertPopupShow(ref UIBButton ___m_okayButton, ref UIBButton ___m_confirmButton, ref UIBButton ___m_cancelButton, ref AlertPopup.PopupInfo ___m_popupInfo)
-        {
-            if (!PluginConfig.AutoConfirmDialogsValue)
-            {
-                return true;
-            }
-
-            if (___m_popupInfo != null && ___m_popupInfo.m_text == GameStrings.Get("GLOBAL_RECONNECT_RECONNECTING_LOGIN"))
-            {
-                return true;
-            }
-
-            return !Utils.TryHandlePopup(___m_okayButton, ___m_confirmButton, ___m_cancelButton);
-        }
-
-        [HarmonyPostfix]
-        [HarmonyPatch(typeof(AlertPopup), "UpdateInfo")]
-        public static void PatchAlertPopupUpdateInfo(ref UIBButton ___m_okayButton, ref UIBButton ___m_confirmButton, ref UIBButton ___m_cancelButton)
-        {
-            if (PluginConfig.AutoConfirmDialogsValue)
-            {
-                Utils.TryHandlePopup(___m_okayButton, ___m_confirmButton, ___m_cancelButton);
-            }
-        }
-
-        [HarmonyTranspiler]
-        [HarmonyPatch(typeof(MulliganManager), "HandleGameStart")]
-        public static IEnumerable<CodeInstruction> PatchHandleGameStart(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
-        {
-            List<CodeInstruction> list = new List<CodeInstruction>(instructions);
-            int index = list.FindLastIndex(delegate (CodeInstruction instruction)
-            {
-                MethodInfo method = instruction.operand as MethodInfo;
-                return instruction.opcode == OpCodes.Callvirt && method != null && method.Name == "ShouldSkipMulligan";
-            });
-
-            if (index <= 0)
-            {
-                return list;
-            }
-
-            index++;
-            object originalTarget = list[index].operand;
-            list.Insert(index++, new CodeInstruction(OpCodes.Brtrue_S, originalTarget));
-            list.Insert(index++, new CodeInstruction(OpCodes.Call, AccessTools.PropertyGetter(typeof(PluginConfig), nameof(PluginConfig.SkipHeroIntroValue))));
-            return list;
         }
 
         [HarmonyPostfix]
@@ -175,7 +117,7 @@ namespace HsBattle
             BattleController controller = Plugin.Instance?.Controller;
             return controller != null
                 ? controller.ShouldAutoSkipPostGameUi()
-                : PluginConfig.EnabledValue && PluginConfig.AutoQueueEnabledValue;
+                : PluginConfig.AutoQueueEnabledValue;
         }
 
         private static void InvokeUiAction(object instance, MethodInfo method, string successMessage)

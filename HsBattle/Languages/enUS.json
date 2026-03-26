@@ -1,8 +1,5 @@
 ﻿{
   "hsmod.declaration": "[Free Software] Distributed only on GitHub.\nhttps://github.com/Pik-4/HsMod",
-  "isPluginEnable.name": "HsMod Status",
-  "isPluginEnable.label": "Global",
-  "isPluginEnable.description": "Enable or disable the plugin (suggested to restart Hearthstone after changing this setting)",
   "pluginLanague.name": "HsMod Language",
   "pluginLanague.label": "Global",
   "pluginLanague.description": "Preferred language of the plugin (requires Hearthstone restart after change, and may invalidate old configuration; remember to back up HsMod.cfg)",

@@ -7,13 +7,6 @@ using UnityEngine;
 
 namespace HsBattle
 {
-    public enum AlertPopupResponse
-    {
-        Confirm,
-        Okay,
-        Cancel
-    }
-
     internal static class Utils
     {
         private static ManualLogSource _logSource;
@@ -87,55 +80,7 @@ namespace HsBattle
 
         public static void OnHsLoginCompleted()
         {
-            if (PluginConfig.DisableIdleKickValue)
-            {
-                InactivePlayerKicker.Get()?.SetShouldCheckForInactivity(false);
-            }
-        }
-
-        public static bool TryHandlePopup(UIBButton okayButton, UIBButton confirmButton, UIBButton cancelButton)
-        {
-            if (!PluginConfig.AutoConfirmDialogsValue)
-            {
-                return false;
-            }
-
-            switch (PluginConfig.PopupResponseValue)
-            {
-                case AlertPopupResponse.Okay:
-                    if (okayButton != null && okayButton.gameObject.activeInHierarchy)
-                    {
-                        okayButton.TriggerPress();
-                        okayButton.TriggerRelease();
-                        return true;
-                    }
-                    break;
-                case AlertPopupResponse.Cancel:
-                    if (cancelButton != null && cancelButton.gameObject.activeInHierarchy)
-                    {
-                        cancelButton.TriggerPress();
-                        cancelButton.TriggerRelease();
-                        return true;
-                    }
-                    break;
-                default:
-                    if (confirmButton != null && confirmButton.gameObject.activeInHierarchy)
-                    {
-                        confirmButton.TriggerPress();
-                        confirmButton.TriggerRelease();
-                        return true;
-                    }
-
-                    if (okayButton != null && okayButton.gameObject.activeInHierarchy)
-                    {
-                        okayButton.TriggerPress();
-                        okayButton.TriggerRelease();
-                        return true;
-                    }
-                    break;
-            }
-
-            return false;
+            InactivePlayerKicker.Get()?.SetShouldCheckForInactivity(false);
         }
 
         public static void AppendMatchLog(TAG_PLAYSTATE playState)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using HsBattle.Strategy;
 using UnityEngine;
 
 namespace HsBattle
@@ -56,6 +57,9 @@ namespace HsBattle
         private float _nextEndGameContinueAt;
         private float _nextNavigationAttemptAt;
         private int _choiceSignature;
+        private bool _hbStrategyFallbackLogged;
+        private readonly LegacyStrategyEngine _legacyStrategyEngine = new LegacyStrategyEngine();
+        private readonly HbStrategyEngine _hbStrategyEngine = new HbStrategyEngine();
 
         private sealed class ActionPlan
         {
@@ -93,13 +97,7 @@ namespace HsBattle
 
         public void Tick()
         {
-            HandleHotkeys();
             TrackQueueConfiguration();
-
-            if (!PluginConfig.EnabledValue)
-            {
-                return;
-            }
 
             TryHandleEndGameScreen();
             TryQueue();
@@ -466,28 +464,8 @@ namespace HsBattle
             }
         }
 
-        private void HandleHotkeys()
-        {
-            if (PluginConfig.toggleAutomationKey != null && PluginConfig.toggleAutomationKey.Value.IsDown())
-            {
-                bool newValue = !PluginConfig.AutomationFullyEnabledValue;
-                PluginConfig.SetAutomationEnabled(newValue);
-                UIStatus.Get()?.AddInfo(newValue ? "HsBattle automation enabled" : "HsBattle automation disabled", 2f);
-            }
-
-            if (PluginConfig.forceQueueKey != null && PluginConfig.forceQueueKey.Value.IsDown())
-            {
-                RequestQueueNow();
-            }
-        }
-
         public void RequestQueueNow()
         {
-            if (PluginConfig.isPluginEnable != null)
-            {
-                PluginConfig.isPluginEnable.Value = true;
-            }
-
             ArmInitialQueueSetup();
             _forceQueueRequested = true;
             _nextQueueAttemptAt = 0f;
@@ -509,7 +487,7 @@ namespace HsBattle
 
         public bool ShouldAutoSkipPostGameUi()
         {
-            return PluginConfig.EnabledValue && (PluginConfig.AutoQueueEnabledValue || _forceQueueRequested);
+            return PluginConfig.AutoQueueEnabledValue || _forceQueueRequested;
         }
 
         private void TryQueue()
@@ -968,12 +946,6 @@ namespace HsBattle
 
         private void TryHandleMulligan()
         {
-            if (!PluginConfig.AutoBattleEnabledValue || !PluginConfig.AutoMulliganEnabledValue)
-            {
-                ResetMulliganProgress();
-                return;
-            }
-
             if (Time.unscaledTime < _nextActionAt)
             {
                 return;
@@ -1132,13 +1104,66 @@ namespace HsBattle
                 return;
             }
 
-            ActionPlan action = BuildActionPlan(gameState, options);
+            StrategyActionPlan action = ResolveStrategyActionPlan(gameState, options);
             if (action == null)
             {
                 return;
             }
 
-            ExecuteAction(gameState, action);
+            ExecuteStrategyAction(gameState, action);
+        }
+
+        private StrategyContext BuildStrategyContext(GameState gameState, Network.Options options)
+        {
+            return new StrategyContext(gameState, options, PluginConfig.StrategyModeValue);
+        }
+
+        private StrategyActionPlan ResolveStrategyActionPlan(GameState gameState, Network.Options options)
+        {
+            StrategyContext context = BuildStrategyContext(gameState, options);
+            // Legacy regression marker: PluginConfig.StrategyModeValue == StrategyMode.HbFrameworkExperimental
+
+            if (context.StrategyMode == StrategyMode.HbFrameworkExperimental)
+            {
+                try
+                {
+                    StrategyEngineResult hbResult = _hbStrategyEngine.TryBuildPlan(this, context);
+                    if (hbResult != null && hbResult.Status == StrategyEngineStatus.Success && hbResult.Plan != null)
+                    {
+                        return hbResult.Plan;
+                    }
+
+                    string fallbackReason = hbResult != null && !string.IsNullOrEmpty(hbResult.Reason)
+                        ? hbResult.Reason
+                        : "HB strategy engine returned no plan.";
+                    LogHbStrategyFallbackOnce(BepInEx.Logging.LogLevel.Info, fallbackReason);
+                }
+                catch (Exception ex)
+                {
+                    LogHbStrategyFallbackOnce(BepInEx.Logging.LogLevel.Warning, ex.Message);
+                }
+            }
+
+            StrategyEngineResult legacyResult = ResolveLegacyStrategyEngineResult(context);
+            return legacyResult != null && legacyResult.Status == StrategyEngineStatus.Success
+                ? legacyResult.Plan
+                : null;
+        }
+
+        private void LogHbStrategyFallbackOnce(BepInEx.Logging.LogLevel level, string reason)
+        {
+            if (_hbStrategyFallbackLogged)
+            {
+                return;
+            }
+
+            _hbStrategyFallbackLogged = true;
+            Utils.MyLogger(level, "HB strategy engine fell back to legacy: " + reason);
+        }
+
+        private StrategyEngineResult ResolveLegacyStrategyEngineResult(StrategyContext context)
+        {
+            return _legacyStrategyEngine.TryBuildPlan(this, context);
         }
 
         private bool TryHandleChoice(GameState gameState)
@@ -1485,6 +1510,12 @@ namespace HsBattle
 
             plans.Sort(delegate (ActionPlan left, ActionPlan right) { return right.Score.CompareTo(left.Score); });
             return plans[0];
+        }
+
+        internal StrategyActionPlan BuildLegacyStrategyActionPlan(GameState gameState, Network.Options options)
+        {
+            ActionPlan action = BuildActionPlan(gameState, options);
+            return action != null ? ToStrategyActionPlan(action) : null;
         }
 
         private ActionPlan BuildActionPlanForOption(GameState gameState, int optionIndex, Network.Options.Option option)
@@ -1837,6 +1868,96 @@ namespace HsBattle
 
             LogDecision(action.Description);
             ScheduleNextBattleAction();
+        }
+
+        internal void ExecuteStrategyAction(GameState gameState, StrategyActionPlan action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            ExecuteAction(gameState, ToLegacyActionPlan(action));
+        }
+
+        private static StrategyActionPlan ToStrategyActionPlan(ActionPlan action)
+        {
+            if (action == null)
+            {
+                return null;
+            }
+
+            return new StrategyActionPlan
+            {
+                OptionIndex = action.OptionIndex,
+                SubOptionIndex = action.SubOptionIndex,
+                TargetId = action.TargetId,
+                Position = action.Position,
+                Score = action.Score,
+                Description = action.Description,
+                Kind = ToStrategyActionKind(action.Kind)
+            };
+        }
+
+        private static ActionPlan ToLegacyActionPlan(StrategyActionPlan action)
+        {
+            if (action == null)
+            {
+                return null;
+            }
+
+            return new ActionPlan
+            {
+                OptionIndex = action.OptionIndex,
+                SubOptionIndex = action.SubOptionIndex,
+                TargetId = action.TargetId,
+                Position = action.Position,
+                Score = action.Score,
+                Description = action.Description,
+                Kind = ToLegacyActionKind(action.Kind)
+            };
+        }
+
+        private static StrategyActionKind ToStrategyActionKind(ActionKind kind)
+        {
+            switch (kind)
+            {
+                case ActionKind.Choice:
+                    return StrategyActionKind.Choice;
+                case ActionKind.PlayCard:
+                    return StrategyActionKind.PlayCard;
+                case ActionKind.HeroPower:
+                    return StrategyActionKind.HeroPower;
+                case ActionKind.Attack:
+                    return StrategyActionKind.Attack;
+                case ActionKind.Pass:
+                    return StrategyActionKind.Pass;
+                case ActionKind.EndTurn:
+                    return StrategyActionKind.EndTurn;
+                default:
+                    return StrategyActionKind.Other;
+            }
+        }
+
+        private static ActionKind ToLegacyActionKind(StrategyActionKind kind)
+        {
+            switch (kind)
+            {
+                case StrategyActionKind.Choice:
+                    return ActionKind.Choice;
+                case StrategyActionKind.PlayCard:
+                    return ActionKind.PlayCard;
+                case StrategyActionKind.HeroPower:
+                    return ActionKind.HeroPower;
+                case StrategyActionKind.Attack:
+                    return ActionKind.Attack;
+                case StrategyActionKind.Pass:
+                    return ActionKind.Pass;
+                case StrategyActionKind.EndTurn:
+                    return ActionKind.EndTurn;
+                default:
+                    return ActionKind.Other;
+            }
         }
 
         private void ScheduleNextBattleAction()
@@ -2255,11 +2376,6 @@ namespace HsBattle
 
         private string DescribeQueueStatus(GameMgr gameMgr)
         {
-            if (!PluginConfig.EnabledValue)
-            {
-                return "\u5df2\u6682\u505c";
-            }
-
             if (gameMgr == null)
             {
                 return "\u672a\u5c31\u7eea";
@@ -2302,11 +2418,6 @@ namespace HsBattle
 
         private static string DescribeBattleStatus(GameMgr gameMgr, GameState gameState)
         {
-            if (!PluginConfig.EnabledValue)
-            {
-                return "\u5df2\u6682\u505c";
-            }
-
             if (gameMgr != null && gameMgr.IsSpectator())
             {
                 return "\u89c2\u6218";
@@ -2325,6 +2436,11 @@ namespace HsBattle
             if (gameState.IsMulliganManagerActive())
             {
                 return "\u7559\u724c";
+            }
+
+            if (!PluginConfig.AutoBattleEnabledValue)
+            {
+                return "\u624b\u52a8";
             }
 
             if (gameState.IsInChoiceMode())

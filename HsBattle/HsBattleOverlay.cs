@@ -1,4 +1,5 @@
 using BepInEx.Logging;
+using HsBattle.Strategy;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -30,6 +31,7 @@ namespace HsBattle
         private GUIStyle _statusStyle;
         private GUIStyle _titleStyle;
         private GUIStyle _textFieldStyle;
+        private GUIStyle _textAreaStyle;
         private bool _stylesReady;
         private bool _collapsed;
         private bool _settingsOpen;
@@ -167,6 +169,11 @@ namespace HsBattle
             _textFieldStyle.margin.top = 0;
             _textFieldStyle.margin.bottom = 4;
 
+            _textAreaStyle = new GUIStyle(_textFieldStyle);
+            _textAreaStyle.alignment = TextAnchor.UpperLeft;
+            _textAreaStyle.wordWrap = true;
+            _textAreaStyle.padding = new RectOffset(6, 6, 6, 6);
+
             _stylesReady = true;
         }
 
@@ -200,11 +207,6 @@ namespace HsBattle
             {
                 bool enable = !PluginConfig.AutomationFullyEnabledValue;
                 PluginConfig.SetAutomationEnabled(enable);
-                if (PluginConfig.isPluginEnable != null && enable)
-                {
-                    PluginConfig.isPluginEnable.Value = true;
-                }
-
                 ShowInfo(enable ? "已开启自动化" : "已暂停自动化");
             }
 
@@ -256,19 +258,14 @@ namespace HsBattle
             _settingsScrollPosition = GUILayout.BeginScrollView(_settingsScrollPosition, GUILayout.Width(348f), GUILayout.Height(486f));
 
             DrawSectionHeader("自动化");
-            DrawToggleRow("插件启用", PluginConfig.EnabledValue, TogglePluginEnabled);
-            DrawToggleRow("自动匹配", PluginConfig.autoQueueEnabled != null && PluginConfig.autoQueueEnabled.Value, ToggleQueue);
-            DrawToggleRow("自动对战", PluginConfig.autoBattleEnabled != null && PluginConfig.autoBattleEnabled.Value, ToggleBattle);
-            DrawToggleRow("自动留牌", PluginConfig.autoMulliganEnabled != null && PluginConfig.autoMulliganEnabled.Value, ToggleMulligan);
-            DrawToggleRow("防掉线踢出", PluginConfig.disableIdleKick != null && PluginConfig.disableIdleKick.Value, ToggleDisableIdleKick);
-            DrawToggleRow("自动确认弹窗", PluginConfig.autoConfirmDialogs != null && PluginConfig.autoConfirmDialogs.Value, ToggleAutoConfirmDialogs);
             DrawToggleRow("错误后退出", PluginConfig.autoExitOnError != null && PluginConfig.autoExitOnError.Value, ToggleAutoExitOnError);
-            DrawToggleRow("跳过英雄开场", PluginConfig.skipHeroIntro != null && PluginConfig.skipHeroIntro.Value, ToggleSkipHeroIntro);
             DrawToggleRow("记录决策日志", PluginConfig.logDecisions != null && PluginConfig.logDecisions.Value, ToggleLogDecisions);
+
+            DrawSectionHeader("策略");
+            DrawButtonRow("策略模式", PluginConfig.DescribeStrategyMode(PluginConfig.StrategyModeValue), CycleStrategyMode);
 
             DrawSectionHeader("匹配");
             DrawIntInputRow("重试间隔(秒)", ref _queueRetryInput, ApplyQueueRetryInput);
-            DrawButtonRow("弹窗默认响应", PluginConfig.DescribePopupResponse(PluginConfig.PopupResponseValue), CyclePopupResponse);
 
             DrawSectionHeader("战斗");
             DrawIntInputRow("延迟下限(ms)", ref _delayMinInput, ApplyDelayInputs);
@@ -277,10 +274,6 @@ namespace HsBattle
 
             DrawSectionHeader("日志");
             DrawTextInputRow("结果日志路径", ref _matchLogPathInput, ApplyMatchLogPathInput);
-
-            DrawSectionHeader("热键");
-            GUILayout.Label(new GUIContent("切换自动化：" + ResolveHotkeyLabel(PluginConfig.toggleAutomationKey != null ? PluginConfig.toggleAutomationKey.Value.ToString() : string.Empty)), _statusStyle);
-            GUILayout.Label(new GUIContent("立即匹配：" + ResolveHotkeyLabel(PluginConfig.forceQueueKey != null ? PluginConfig.forceQueueKey.Value.ToString() : string.Empty)), _statusStyle);
 
             GUILayout.EndScrollView();
             GUILayout.EndArea();
@@ -314,11 +307,6 @@ namespace HsBattle
         private void ToggleQueue()
         {
             bool newValue = !(PluginConfig.autoQueueEnabled != null && PluginConfig.autoQueueEnabled.Value);
-            if (PluginConfig.isPluginEnable != null && newValue)
-            {
-                PluginConfig.isPluginEnable.Value = true;
-            }
-
             if (PluginConfig.autoQueueEnabled != null)
             {
                 PluginConfig.autoQueueEnabled.Value = newValue;
@@ -332,74 +320,14 @@ namespace HsBattle
         private void ToggleBattle()
         {
             bool newValue = !(PluginConfig.autoBattleEnabled != null && PluginConfig.autoBattleEnabled.Value);
-            if (PluginConfig.isPluginEnable != null && newValue)
-            {
-                PluginConfig.isPluginEnable.Value = true;
-            }
-
             if (PluginConfig.autoBattleEnabled != null)
             {
                 PluginConfig.autoBattleEnabled.Value = newValue;
             }
 
-            if (PluginConfig.autoMulliganEnabled != null && newValue)
-            {
-                PluginConfig.autoMulliganEnabled.Value = true;
-            }
-
             _modeDropdownOpen = false;
             _deckDropdownOpen = false;
             ShowInfo(newValue ? "已开启自动对战" : "已关闭自动对战");
-        }
-
-        private void TogglePluginEnabled()
-        {
-            if (PluginConfig.isPluginEnable == null)
-            {
-                return;
-            }
-
-            PluginConfig.isPluginEnable.Value = !PluginConfig.isPluginEnable.Value;
-            ShowInfo(PluginConfig.isPluginEnable.Value ? "已启用插件" : "已停用插件");
-        }
-
-        private void ToggleMulligan()
-        {
-            if (PluginConfig.autoMulliganEnabled == null)
-            {
-                return;
-            }
-
-            bool newValue = !PluginConfig.autoMulliganEnabled.Value;
-            if (PluginConfig.isPluginEnable != null && newValue)
-            {
-                PluginConfig.isPluginEnable.Value = true;
-            }
-
-            PluginConfig.autoMulliganEnabled.Value = newValue;
-            ShowInfo(newValue ? "已开启自动留牌" : "已关闭自动留牌");
-        }
-
-        private void ToggleDisableIdleKick()
-        {
-            if (PluginConfig.disableIdleKick == null)
-            {
-                return;
-            }
-
-            PluginConfig.disableIdleKick.Value = !PluginConfig.disableIdleKick.Value;
-            ShowInfo(PluginConfig.disableIdleKick.Value ? "已开启防掉线踢出" : "已关闭防掉线踢出");
-        }
-
-        private void ToggleAutoConfirmDialogs()
-        {
-            if (PluginConfig.autoConfirmDialogs == null)
-            {
-                return;
-            }
-
-            PluginConfig.autoConfirmDialogs.Value = !PluginConfig.autoConfirmDialogs.Value;
-            ShowInfo(PluginConfig.autoConfirmDialogs.Value ? "已开启自动确认弹窗" : "已关闭自动确认弹窗");
         }
 
         private void ToggleAutoExitOnError()
@@ -413,17 +341,6 @@ namespace HsBattle
             ShowInfo(PluginConfig.autoExitOnError.Value ? "已开启错误后退出" : "已关闭错误后退出");
         }
 
-        private void ToggleSkipHeroIntro()
-        {
-            if (PluginConfig.skipHeroIntro == null)
-            {
-                return;
-            }
-
-            PluginConfig.skipHeroIntro.Value = !PluginConfig.skipHeroIntro.Value;
-            ShowInfo(PluginConfig.skipHeroIntro.Value ? "已开启跳过英雄开场" : "已关闭跳过英雄开场");
-        }
-
         private void ToggleLogDecisions()
         {
             if (PluginConfig.logDecisions == null)
@@ -435,9 +352,24 @@ namespace HsBattle
             ShowInfo(PluginConfig.logDecisions.Value ? "已开启决策日志" : "已关闭决策日志");
         }
 
+        private void CycleStrategyMode()
+        {
+            if (PluginConfig.strategyMode == null)
+            {
+                ShowInfo("策略模式配置未就绪，暂无法切换");
+                return;
+            }
+
+            StrategyMode nextMode = PluginConfig.StrategyModeValue == StrategyMode.Legacy
+                ? StrategyMode.HbFrameworkExperimental
+                : StrategyMode.Legacy;
+            PluginConfig.SetStrategyMode(nextMode);
+            ShowInfo("已切换策略模式：" + PluginConfig.DescribeStrategyMode(nextMode));
+        }
+
         private string BuildAutomationLabel()
         {
-            if (!PluginConfig.EnabledValue)
+            if (!PluginConfig.AutoQueueEnabledValue && !PluginConfig.AutoBattleEnabledValue)
             {
                 return "状态已关闭";
             }
@@ -471,8 +403,7 @@ namespace HsBattle
         private string BuildStatusLine()
         {
             return string.Format(
-                "留牌:{0}  模式:{1}  {2}",
-                DescribeToggleState(PluginConfig.AutoMulliganEnabledValue),
+                "模式:{0}  {1}",
                 PluginConfig.DescribeQueueMode(PluginConfig.queueMode != null ? PluginConfig.queueMode.Value : QueueMode.Standard),
                 _controller != null ? _controller.GetOverlayStatusText() : "状态:未就绪");
         }
@@ -525,9 +456,10 @@ namespace HsBattle
             GUILayout.Label(new GUIContent(label), _statusStyle, GUILayout.Width(320f), GUILayout.Height(20f));
 
             GUILayout.BeginHorizontal();
-            inputValue = GUILayout.TextField(inputValue ?? string.Empty, _textFieldStyle, GUILayout.Width(224f), GUILayout.Height(24f));
+            Rect textAreaRect = GUILayoutUtility.GetRect(262f, 46f, _textAreaStyle);
+            inputValue = GUI.TextArea(textAreaRect, inputValue ?? string.Empty, _textAreaStyle);
 
-            if (GUILayout.Button(new GUIContent("应用"), _buttonStyle, GUILayout.Width(60f), GUILayout.Height(24f)))
+            if (GUILayout.Button(new GUIContent("应用"), _buttonStyle, GUILayout.Width(60f), GUILayout.Height(46f)))
             {
                 applyAction?.Invoke();
             }
@@ -710,31 +642,6 @@ namespace HsBattle
             PluginConfig.SetMatchLogPath(_matchLogPathInput);
             SyncInputsFromConfig();
             ShowInfo("已更新结果日志路径");
-        }
-
-        private void CyclePopupResponse()
-        {
-            AlertPopupResponse nextResponse;
-            switch (PluginConfig.PopupResponseValue)
-            {
-                case AlertPopupResponse.Okay:
-                    nextResponse = AlertPopupResponse.Cancel;
-                    break;
-                case AlertPopupResponse.Cancel:
-                    nextResponse = AlertPopupResponse.Confirm;
-                    break;
-                default:
-                    nextResponse = AlertPopupResponse.Okay;
-                    break;
-            }
-
-            PluginConfig.SetPopupResponse(nextResponse);
-            ShowInfo("弹窗默认响应：" + PluginConfig.DescribePopupResponse(nextResponse));
-        }
-
-        private static string ResolveHotkeyLabel(string value)
-        {
-            return string.IsNullOrWhiteSpace(value) ? "未设置" : value;
         }
 
         private static string ShortenLabel(string text, int maxLength)

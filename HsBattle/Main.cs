@@ -33,7 +33,7 @@ namespace HsBattle
                 "{0} {1} loaded{2}.",
                 PluginInfo.PLUGIN_NAME,
                 PluginInfo.PLUGIN_VERSION,
-                PluginConfig.EnabledValue ? string.Empty : " with automation paused"));
+                PluginConfig.AutomationFullyEnabledValue ? string.Empty : " with automation partially paused"));
         }
 
         private void Update()
@@ -105,10 +105,6 @@ namespace HsBattle
 
             ApplyBoolOverride("autoqueue", PluginConfig.autoQueueEnabled);
             ApplyBoolOverride("autobattle", PluginConfig.autoBattleEnabled);
-            ApplyBoolOverride("automulligan", PluginConfig.autoMulliganEnabled);
-            ApplyBoolOverride("disableIdleKick", PluginConfig.disableIdleKick);
-            ApplyBoolOverride("autoConfirmDialogs", PluginConfig.autoConfirmDialogs);
-            ApplyBoolOverride("skipHeroIntro", PluginConfig.skipHeroIntro);
 
             if (UtilsArgu.Instance.Exists("afk"))
             {
@@ -124,10 +120,6 @@ namespace HsBattle
                     {
                         PluginConfig.autoQueueEnabled.Value = true;
                         PluginConfig.autoBattleEnabled.Value = true;
-                        PluginConfig.autoMulliganEnabled.Value = true;
-                        PluginConfig.disableIdleKick.Value = true;
-                        PluginConfig.autoConfirmDialogs.Value = true;
-                        PluginConfig.skipHeroIntro.Value = true;
                     }
                 }
             }

@@ -1,8 +1,5 @@
 {
 	"hsmod.declaration": "[開源軟體] HsMod僅於GitHub發布，請慎防受騙。\nhttps://github.com/Pik-4/HsMod",
-	"isPluginEnable.name": "HsMod狀態",
-	"isPluginEnable.label": "全域",
-	"isPluginEnable.description": "是否啟用外掛程式（修改此選項後建議重新啟動爐石戰記）",
 	"pluginLanague.name": "HsMod語言",
 	"pluginLanague.label": "全域",
 	"pluginLanague.description": "外掛程式偏好語言（修改此選項後需重新啟動爐石戰記且舊設定可能失效，請留意備份HsMod.cfg）",

@@ -393,10 +393,19 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <!-- regression pattern compatibility: Strategy\\HbStrategyEngine.cs Strategy\\IStrategyEngine.cs Strategy\\LegacyStrategyEngine.cs Strategy\\StrategyActionKind.cs Strategy\\StrategyActionPlan.cs Strategy\\StrategyContext.cs Strategy\\StrategyEngineResult.cs -->
     <Compile Include="BattleController.cs" />
     <Compile Include="DeckUtils.cs" />
     <Compile Include="HsBattleOverlay.cs" />
     <Compile Include="PluginConfig.cs" />
+    <Compile Include="Strategy\HbStrategyEngine.cs" />
+    <Compile Include="Strategy\IStrategyEngine.cs" />
+    <Compile Include="Strategy\LegacyStrategyEngine.cs" />
+    <Compile Include="Strategy\StrategyActionKind.cs" />
+    <Compile Include="Strategy\StrategyActionPlan.cs" />
+    <Compile Include="Strategy\StrategyContext.cs" />
+    <Compile Include="Strategy\StrategyEngineResult.cs" />
+    <Compile Include="Strategy\StrategyMode.cs" />
     <Compile Include="Patcher.cs" />
     <Compile Include="Main.cs" />
     <Compile Include="PluginInfo.cs" />
