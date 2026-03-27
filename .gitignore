@@ -7,4 +7,5 @@
 /.worktrees/
 /.dotnet-home/.dotnet
 /docs/superpowers
+/tests
 /.worktrees/
