@@ -103,7 +103,9 @@ param(
 $sourceFiles = @(
     [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'StrategyMode.cs'),
     [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'StrategyActionKind.cs'),
-    [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'Hb', 'HbBattleSnapshot.cs'),
+    [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'Hb', 'HbActionSupportKind.cs'),
+    [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'Hb', 'HbBattleEntitySnapshot.cs'),
+    [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'Hb', 'HbBattleCardSnapshot.cs'),    [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'Hb', 'HbBattleSnapshot.cs'),
     [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'Hb', 'HbBattleOptionSnapshot.cs'),
     [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'Hb', 'HbBattleTargetSnapshot.cs'),
     [System.IO.Path]::Combine($RepoRoot, 'HsBattle', 'Strategy', 'Hb', 'HbMulliganSnapshot.cs'),
@@ -259,3 +261,4 @@ if ($failures.Count -gt 0) {
 }
 
 Write-Host 'HB experimental battle regression checks passed.'
+

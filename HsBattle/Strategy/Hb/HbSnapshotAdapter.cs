@@ -10,38 +10,34 @@ namespace HsBattle.Strategy.Hb
         public HbBattleSnapshot CreateBattleSnapshot(StrategyContext context)
         {
             HbBattleSnapshot snapshot = new HbBattleSnapshot();
-            if (context == null)
+            if (context == null || context.GameState == null)
             {
                 return snapshot;
             }
 
-            snapshot.StrategyMode = context.StrategyMode;
-
             GameState gameState = context.GameState;
-            snapshot.IsFriendlyTurn = gameState != null && gameState.IsFriendlySidePlayerTurn();
+            snapshot.StrategyMode = context.StrategyMode;
+            snapshot.IsFriendlyTurn = gameState.IsFriendlySidePlayerTurn();
+            snapshot.AvailableMana = TryResolveAvailableMana(gameState);
             snapshot.FriendlyHeroHealth = TryResolveFriendlyHeroHealth(gameState);
             snapshot.EnemyHeroHealth = TryResolveEnemyHeroHealth(gameState);
             snapshot.IsFriendlyHeroHealthKnown = snapshot.FriendlyHeroHealth >= 0;
             snapshot.IsEnemyHeroHealthKnown = snapshot.EnemyHeroHealth >= 0;
+            snapshot.HeroPowerUsable = TryResolveHeroPowerUsable(gameState);
+
+            snapshot.FriendlyBoard.AddRange(CreateBoardSnapshots(gameState, isFriendly: true));
+            snapshot.EnemyBoard.AddRange(CreateBoardSnapshots(gameState, isFriendly: false));
+            snapshot.HandCards.AddRange(CreateHandSnapshots(gameState));
 
             Network.Options options = context.Options;
-            if (options == null && gameState != null)
+            if (options == null)
             {
                 options = gameState.GetOptionsPacket() ?? gameState.GetLastOptions();
             }
 
-            if (options == null || options.List == null)
+            foreach (HbBattleOptionSnapshot option in CreateBattleOptionSnapshots(gameState, options, snapshot.EnemyHeroHealth))
             {
-                return snapshot;
-            }
-
-            for (int optionIndex = 0; optionIndex < options.List.Count; optionIndex++)
-            {
-                HbBattleOptionSnapshot option = CreateBattleOptionSnapshot(gameState, optionIndex, options.List[optionIndex], snapshot.EnemyHeroHealth);
-                if (option != null)
-                {
-                    snapshot.Options.Add(option);
-                }
+                snapshot.Options.Add(option);
             }
 
             return snapshot;
@@ -75,46 +71,59 @@ namespace HsBattle.Strategy.Hb
             return snapshot;
         }
 
-        private static HbBattleOptionSnapshot CreateBattleOptionSnapshot(
+        private static IEnumerable<HbBattleOptionSnapshot> CreateBattleOptionSnapshots(
             GameState gameState,
-            int optionIndex,
-            Network.Options.Option option,
+            Network.Options options,
             int enemyHeroHealth)
         {
-            if (option == null || option.Main == null)
+            if (options == null || options.List == null)
             {
-                return null;
+                yield break;
             }
 
-            Entity entity = gameState != null ? gameState.GetEntity(option.Main.ID) : null;
-            bool canTargetEnemyHero = CanTargetEnemyHero(gameState, option.Main.Targets);
-            int attack = entity != null ? entity.GetRealTimeAttack() : 0;
-
-            HbBattleOptionSnapshot battleOption = new HbBattleOptionSnapshot
+            for (int optionIndex = 0; optionIndex < options.List.Count; optionIndex++)
             {
-                OptionIndex = optionIndex,
-                EntityId = option.Main.ID,
-                Cost = entity != null ? entity.GetRealTimeCost() : 0,
-                Attack = attack,
-                SourceHealth = entity != null ? entity.GetCurrentHealth() : -1,
-                TargetCount = CountPlayableTargets(option.Main.Targets),
-                RequiresTarget = RequiresTarget(option),
-                CanTargetEnemyHero = canTargetEnemyHero,
-                CanLethal = canTargetEnemyHero && enemyHeroHealth > 0 && attack >= enemyHeroHealth,
-                IsPlayable = IsPlayableOption(option),
-                IsEndTurn = option.Type == Network.Options.Option.OptionType.END_TURN,
-                IsPass = option.Type == Network.Options.Option.OptionType.PASS,
-                IsEntityResolved = entity != null,
-                Kind = ResolveActionKind(gameState, option, entity),
-                Description = BuildOptionDescription(optionIndex, option, entity)
-            };
+                Network.Options.Option option = options.List[optionIndex];
+                if (option == null || option.Main == null)
+                {
+                    continue;
+                }
 
-            foreach (HbBattleTargetSnapshot target in CreateBattleTargetSnapshots(gameState, option.Main.Targets))
-            {
-                battleOption.Targets.Add(target);
+                Entity entity = gameState != null ? gameState.GetEntity(option.Main.ID) : null;
+                bool canTargetEnemyHero = CanTargetEnemyHero(gameState, option.Main.Targets);
+                int attack = entity != null ? entity.GetRealTimeAttack() : 0;
+                StrategyActionKind actionKind = ResolveActionKind(gameState, option, entity);
+                int damageAmount = ResolveDamageAmount(option, actionKind, attack);
+
+                HbBattleOptionSnapshot battleOption = new HbBattleOptionSnapshot
+                {
+                    OptionIndex = optionIndex,
+                    EntityId = option.Main.ID,
+                    Cost = entity != null ? entity.GetRealTimeCost() : 0,
+                    Attack = attack,
+                    DamageAmount = damageAmount,
+                    DrawCount = 0,
+                    SourceHealth = entity != null ? entity.GetCurrentHealth() : -1,
+                    TargetCount = CountPlayableTargets(option.Main.Targets),
+                    RequiresTarget = RequiresTarget(option),
+                    CanTargetEnemyHero = canTargetEnemyHero,
+                    CanLethal = canTargetEnemyHero && enemyHeroHealth > 0 && damageAmount >= enemyHeroHealth,
+                    IsPlayable = IsPlayableOption(option),
+                    IsEndTurn = option.Type == Network.Options.Option.OptionType.END_TURN,
+                    IsPass = option.Type == Network.Options.Option.OptionType.PASS,
+                    IsEntityResolved = entity != null,
+                    HasBattlecry = false,
+                    Kind = actionKind,
+                    Description = BuildOptionDescription(optionIndex, option, entity)
+                };
+
+                foreach (HbBattleTargetSnapshot target in CreateBattleTargetSnapshots(gameState, option.Main.Targets))
+                {
+                    battleOption.Targets.Add(target);
+                }
+
+                yield return battleOption;
             }
-
-            return battleOption;
         }
 
         private static string BuildOptionDescription(int optionIndex, Network.Options.Option option, Entity entity)
@@ -167,6 +176,128 @@ namespace HsBattle.Strategy.Hb
             }
 
             return false;
+        }
+
+        private static int TryResolveAvailableMana(GameState gameState)
+        {
+            Player player = gameState != null ? gameState.GetFriendlySidePlayer() : null;
+            return player != null ? player.GetNumAvailableResources() : 0;
+        }
+
+        private static bool TryResolveHeroPowerUsable(GameState gameState)
+        {
+            Player player = gameState != null ? gameState.GetFriendlySidePlayer() : null;
+            Entity heroPower = player != null ? player.GetHeroPower() : null;
+            return heroPower != null && !heroPower.IsExhausted();
+        }
+
+        private static IEnumerable<HbBattleEntitySnapshot> CreateBoardSnapshots(GameState gameState, bool isFriendly)
+        {
+            Player player = gameState != null
+                ? (isFriendly ? gameState.GetFriendlySidePlayer() : TryResolveOpposingPlayer(gameState))
+                : null;
+            Zone battlefield = player != null ? player.GetBattlefieldZone() : null;
+            if (battlefield == null)
+            {
+                yield break;
+            }
+
+            List<Card> cards = battlefield.GetCards();
+            for (int index = 0; index < cards.Count; index++)
+            {
+                Entity entity = cards[index] != null ? cards[index].GetEntity() : null;
+                if (entity == null)
+                {
+                    continue;
+                }
+
+                yield return new HbBattleEntitySnapshot
+                {
+                    EntityId = entity.GetEntityId(),
+                    IsFriendly = isFriendly,
+                    IsHero = entity.IsHero(),
+                    IsMinion = entity.IsMinion(),
+                    Attack = entity.GetRealTimeAttack(),
+                    Health = entity.GetCurrentHealth(),
+                    MaxHealth = entity.GetDefHealth(),
+                    CanAttack = TryResolveCanAttack(entity),
+                    HasAttacked = entity.IsExhausted(),
+                    HasTaunt = entity.HasTaunt(),
+                    HasDivineShield = entity.HasDivineShield(),
+                    IsStealthed = entity.IsStealthed(),
+                    IsFrozen = entity.IsFrozen()
+                };
+            }
+        }
+
+        private static IEnumerable<HbBattleCardSnapshot> CreateHandSnapshots(GameState gameState)
+        {
+            Player player = gameState != null ? gameState.GetFriendlySidePlayer() : null;
+            Zone hand = player != null ? player.GetHandZone() : null;
+            if (hand == null)
+            {
+                yield break;
+            }
+
+            List<Card> cards = hand.GetCards();
+            for (int index = 0; index < cards.Count; index++)
+            {
+                Entity entity = cards[index] != null ? cards[index].GetEntity() : null;
+                if (entity == null)
+                {
+                    continue;
+                }
+
+                yield return new HbBattleCardSnapshot
+                {
+                    EntityId = entity.GetEntityId(),
+                    Cost = entity.GetRealTimeCost()
+                };
+            }
+        }
+
+        private static int ResolveDamageAmount(Network.Options.Option option, StrategyActionKind actionKind, int attack)
+        {
+            if (actionKind == StrategyActionKind.Attack)
+            {
+                return attack;
+            }
+
+            if (actionKind == StrategyActionKind.HeroPower && option != null && option.Main != null && option.Main.Targets != null && option.Main.Targets.Count > 0)
+            {
+                return 1;
+            }
+
+            return 0;
+        }
+
+        private static bool TryResolveCanAttack(Entity entity)
+        {
+            if (entity == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                MethodInfo method = entity.GetType().GetMethod("CanAttack", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (method != null && method.ReturnType == typeof(bool) && method.GetParameters().Length == 0)
+                {
+                    return (bool)method.Invoke(entity, null);
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                return !entity.IsExhausted() && entity.GetRealTimeAttack() > 0;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static bool RequiresTarget(Network.Options.Option option)

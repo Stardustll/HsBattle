@@ -4,21 +4,26 @@ namespace HsBattle.Strategy.Hb
     {
         public int ScoreBattleOption(HbBattleSnapshot snapshot, HbBattleOptionSnapshot option)
         {
-            if (option == null)
+            if (option == null || !option.IsPlayable)
             {
                 return int.MinValue;
             }
 
             int score = 0;
 
+            if (option.Kind == StrategyActionKind.EndTurn || option.IsPass)
+            {
+                return -300;
+            }
+
             if (option.CanLethal)
             {
                 score += 100000;
             }
 
-            if (option.IsPlayable)
+            if (option.SupportKind == HbActionSupportKind.SupportedExact)
             {
-                score += 150;
+                score += 30;
             }
 
             if (!option.IsEntityResolved && !option.IsEndTurn && !option.IsPass)
@@ -26,24 +31,27 @@ namespace HsBattle.Strategy.Hb
                 score -= 40;
             }
 
-            if (option.Kind == StrategyActionKind.Attack)
+            if (snapshot != null
+                && snapshot.IsEnemyHeroHealthKnown
+                && option.DamageAmount >= snapshot.EnemyHeroHealth
+                && option.DamageAmount > 0)
+            {
+                score += 100000;
+            }
+
+            if (option.Kind == StrategyActionKind.Attack || option.Kind == StrategyActionKind.HeroPower)
             {
                 score += option.Attack * 8;
             }
 
             if (option.Kind == StrategyActionKind.PlayCard)
             {
-                score += option.Cost * 10;
+                score += option.Cost * 4;
             }
 
             if (option.RequiresTarget && option.TargetCount == 0)
             {
                 score -= 800;
-            }
-
-            if (option.IsEndTurn || option.IsPass)
-            {
-                score -= 300;
             }
 
             if (snapshot != null
@@ -136,20 +144,26 @@ namespace HsBattle.Strategy.Hb
 
             if (target.IsFriendlyHero && target.IsDamaged)
             {
-                score += 60;
+                score += 40;
+                score += target.MissingHealth * 4;
             }
 
             if (target.IsFriendlyCharacter && target.IsDamaged)
             {
                 score += 40;
+
+                if (target.Attack > 0)
+                {
+                    score += target.Attack * 4;
+                }
             }
 
             if (target.IsFriendlyCharacter && !target.IsDamaged && target.Attack > 0)
             {
-                score -= 35;
+                score += target.Attack * 2;
             }
 
-            if (!target.IsEnemyHero && !target.IsEnemyCharacter)
+            if (!target.IsEnemyHero && !target.IsEnemyCharacter && !target.IsFriendlyHero && !target.IsFriendlyCharacter)
             {
                 score -= 500;
             }

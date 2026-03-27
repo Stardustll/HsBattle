@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -399,6 +399,25 @@
     <Compile Include="HsBattleOverlay.cs" />
     <Compile Include="PluginConfig.cs" />
     <Compile Include="Strategy\HbStrategyEngine.cs" />
+    <Compile Include="Strategy\Hb\HbActionSupportKind.cs" />
+    <Compile Include="Strategy\Hb\HbActionSequencePlan.cs" />
+    <Compile Include="Strategy\Hb\HbBattleEntitySnapshot.cs" />
+    <Compile Include="Strategy\Hb\HbBattleCardSnapshot.cs" />
+    <Compile Include="Strategy\Hb\HbBattleSnapshot.cs" />
+    <Compile Include="Strategy\Hb\HbBattleOptionSnapshot.cs" />
+    <Compile Include="Strategy\Hb\HbBattleTargetSnapshot.cs" />
+    <Compile Include="Strategy\Hb\HbBattleDecisionService.cs" />
+    <Compile Include="Strategy\Hb\HbSimulatedTurnState.cs" />
+    <Compile Include="Strategy\Hb\HbActionSupportClassifier.cs" />
+    <Compile Include="Strategy\Hb\HbActionResolver.cs" />
+    <Compile Include="Strategy\Hb\HbTurnSequenceScorer.cs" />
+    <Compile Include="Strategy\Hb\HbTurnPlanner.cs" />
+    <Compile Include="Strategy\Hb\HbMulliganCardSnapshot.cs" />
+    <Compile Include="Strategy\Hb\HbMulliganSnapshot.cs" />
+    <Compile Include="Strategy\Hb\HbMulliganDecisionResult.cs" />
+    <Compile Include="Strategy\Hb\HbMulliganDecisionService.cs" />
+    <Compile Include="Strategy\Hb\HbSnapshotAdapter.cs" />
+    <Compile Include="Strategy\Hb\HbHeuristicEvaluator.cs" />
     <Compile Include="Strategy\IStrategyEngine.cs" />
     <Compile Include="Strategy\LegacyStrategyEngine.cs" />
     <Compile Include="Strategy\StrategyActionKind.cs" />
@@ -410,8 +429,8 @@
     <Compile Include="Main.cs" />
     <Compile Include="PluginInfo.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Utils.cs" />
     <Compile Include="Properties\InternalsVisibleTo.cs" />
+    <Compile Include="Utils.cs" />
     <Compile Include="UtilsArgu.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
@@ -430,3 +449,4 @@
     </Target>
     -->
 </Project>
+

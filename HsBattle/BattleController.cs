@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HsBattle.Strategy;
+using HsBattle.Strategy.Hb;
 using UnityEngine;
 
 namespace HsBattle
@@ -60,6 +61,8 @@ namespace HsBattle
         private bool _hbStrategyFallbackLogged;
         private readonly LegacyStrategyEngine _legacyStrategyEngine = new LegacyStrategyEngine();
         private readonly HbStrategyEngine _hbStrategyEngine = new HbStrategyEngine();
+        private readonly HbSnapshotAdapter _hbSnapshotAdapter = new HbSnapshotAdapter();
+        private readonly HbMulliganDecisionService _hbMulliganDecisionService = new HbMulliganDecisionService();
 
         private sealed class ActionPlan
         {
@@ -992,10 +995,15 @@ namespace HsBattle
 
             if (_mulliganHoldIssuedAt <= 0f)
             {
-                mulliganManager.SetAllMulliganCardsToHold();
+                bool handledExperimentalMulligan = TryHandleExperimentalMulligan(gameState, mulliganManager);
+                if (!handledExperimentalMulligan)
+                {
+                    mulliganManager.SetAllMulliganCardsToHold();
+                    LogDecision("auto mulligan keep all");
+                }
+
                 _mulliganHoldIssuedAt = Time.unscaledTime;
                 _mulliganConfirmReadySinceAt = 0f;
-                LogDecision("auto mulligan keep all");
                 return;
             }
 
@@ -1039,6 +1047,115 @@ namespace HsBattle
             ResetMulliganProgress();
             _postMulliganActionBlockedUntil = Time.unscaledTime + Mathf.Max(PostMulliganSettleSeconds, PluginConfig.RollActionDelaySeconds());
             _nextActionAt = _postMulliganActionBlockedUntil;
+        }
+
+        private bool TryHandleExperimentalMulligan(GameState gameState, MulliganManager mulliganManager)
+        {
+            if (gameState == null || mulliganManager == null)
+            {
+                return false;
+            }
+
+            if (PluginConfig.StrategyModeValue == StrategyMode.HbFrameworkExperimental)
+            {
+                try
+                {
+                    HbMulliganSnapshot snapshot = _hbSnapshotAdapter.CreateMulliganSnapshot(mulliganManager);
+                    HbMulliganDecisionResult mulliganDecision = _hbMulliganDecisionService.Decide(snapshot);
+                    if (mulliganDecision == null || mulliganDecision.ShouldFallbackToKeepAll)
+                    {
+                        string reason = mulliganDecision != null && !string.IsNullOrEmpty(mulliganDecision.Reason)
+                            ? ": " + mulliganDecision.Reason
+                            : string.Empty;
+                        Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HB experimental mulligan fell back to keep-all" + reason);
+                        return false;
+                    }
+
+                    if (!TryApplyExperimentalMulliganDecision(mulliganManager, mulliganDecision))
+                    {
+                        Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HB experimental mulligan fell back to keep-all: could not apply mulligan selection.");
+                        return false;
+                    }
+
+                    LogDecision(string.Format(
+                        "HB experimental mulligan keep {0} replace {1}",
+                        mulliganDecision.KeepIndices.Count,
+                        mulliganDecision.ReplaceIndices.Count));
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Utils.MyLogger(BepInEx.Logging.LogLevel.Warning, "HB experimental mulligan fell back to keep-all: " + ex.Message);
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryApplyExperimentalMulliganDecision(MulliganManager mulliganManager, HbMulliganDecisionResult mulliganDecision)
+        {
+            if (mulliganManager == null || mulliganDecision == null)
+            {
+                return false;
+            }
+
+            List<Card> startingCards = mulliganManager.GetStartingCards();
+            if (startingCards == null)
+            {
+                return false;
+            }
+
+            if (mulliganDecision.KeepIndices == null)
+            {
+                return false;
+            }
+
+            HashSet<int> keepIndices = new HashSet<int>();
+            for (int i = 0; i < mulliganDecision.KeepIndices.Count; i++)
+            {
+                int keepIndex = mulliganDecision.KeepIndices[i];
+                if (keepIndex < 0 || keepIndex >= startingCards.Count || !keepIndices.Add(keepIndex))
+                {
+                    return false;
+                }
+            }
+
+            // KeepIndices is the authoritative source in experimental flow.
+            // ReplaceIndices is treated as redundant/derived data.
+            List<int> replaceIndices = new List<int>();
+            for (int index = 0; index < startingCards.Count; index++)
+            {
+                if (!keepIndices.Contains(index))
+                {
+                    replaceIndices.Add(index);
+                }
+            }
+
+            mulliganManager.SetAllMulliganCardsToHold();
+            if (replaceIndices.Count == 0)
+            {
+                return true;
+            }
+
+            HashSet<int> seenReplaceIndices = new HashSet<int>();
+            for (int i = 0; i < replaceIndices.Count; i++)
+            {
+                int replaceIndex = replaceIndices[i];
+                if (replaceIndex < 0 || replaceIndex >= startingCards.Count || !seenReplaceIndices.Add(replaceIndex))
+                {
+                    return false;
+                }
+
+                Card startingCard = startingCards[replaceIndex];
+                if (startingCard == null)
+                {
+                    return false;
+                }
+
+                mulliganManager.ToggleHoldState(startingCard);
+            }
+
+            return true;
         }
 
         private void TryHandleBattle()
