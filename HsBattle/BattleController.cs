@@ -1314,7 +1314,7 @@ namespace HsBattle
             }
 
             int selectCount = Mathf.Clamp(requiredCount, 1, Mathf.Min(maxCount, rankedChoices.Count));
-            ShuffleEntities(rankedChoices);
+            rankedChoices.Sort(delegate (Entity left, Entity right) { return EvaluateChoiceEntity(right).CompareTo(EvaluateChoiceEntity(left)); });
             ClearChosenEntities(gameState);
 
             List<string> selectedNames = new List<string>();
@@ -1338,7 +1338,7 @@ namespace HsBattle
 
             gameState.SendChoices();
             TryHideChoiceUi();
-            LogDecision("choice(random): " + string.Join(", ", selectedNames.ToArray()));
+            LogDecision("choice(ranked): " + string.Join(", ", selectedNames.ToArray()));
             ResetChoiceProgress();
             ScheduleNextBattleAction();
             return true;
@@ -1628,7 +1628,7 @@ namespace HsBattle
                 return null;
             }
 
-            int targetId = ResolveTargetId(gameState, actionEntity ?? mainEntity, targets);
+            int targetId = ResolveTargetId(gameState, actionEntity ?? mainEntity, targets, kind);
             if (targets != null && targets.Count > 0 && targetId <= 0)
             {
                 return null;
@@ -1665,7 +1665,7 @@ namespace HsBattle
                 }
 
                 Entity subEntity = gameState.GetEntity(subOption.ID);
-                int targetId = ResolveTargetId(gameState, subEntity, subOption.Targets);
+                int targetId = ResolveTargetId(gameState, subEntity, subOption.Targets, kind);
                 if (HasUsableTargets(subOption.Targets) && targetId <= 0)
                 {
                     continue;
@@ -1731,7 +1731,10 @@ namespace HsBattle
 
             if (kind == ActionKind.PlayCard)
             {
-                return 500 + (entity != null ? entity.GetRealTimeCost() * 20 : 0) + (entity != null && entity.IsMinion() ? 30 : 0);
+                int cost = entity != null ? entity.GetRealTimeCost() : 0;
+                int minionBonus = entity != null && entity.IsMinion() ? 40 : 0;
+                int spellBonus = entity != null && entity.IsSpell() ? 20 : 0;
+                return 500 + cost * 22 + minionBonus + spellBonus;
             }
 
             if (kind == ActionKind.HeroPower)
@@ -1741,9 +1744,45 @@ namespace HsBattle
 
             if (kind == ActionKind.Attack)
             {
+                // Skip frozen attackers
+                if (entity != null && entity.IsFrozen())
+                {
+                    return -1000;
+                }
+
+                int attack = entity != null ? entity.GetRealTimeAttack() : 0;
                 Entity target = targetId > 0 ? gameState.GetEntity(targetId) : null;
+
+                // Lethal detection: if this attack kills the enemy hero
+                if (target != null && target.IsHero() && attack > 0)
+                {
+                    int heroHealth = target.GetCurrentHealth();
+                    if (heroHealth > 0 && attack >= heroHealth)
+                    {
+                        return 100000;
+                    }
+
+                    if (heroHealth <= 10)
+                    {
+                        return 400 + attack * 8 + (11 - heroHealth) * 5;
+                    }
+                }
+
                 int faceBonus = target != null && target.IsHero() ? 40 : 0;
-                return 250 + faceBonus + (entity != null ? entity.GetRealTimeAttack() : 0);
+                int minionBonus = 0;
+                if (target != null && target.IsMinion())
+                {
+                    int targetHealth = target.GetCurrentHealth();
+                    int targetAttack = target.GetRealTimeAttack();
+                    if (targetHealth > 0 && attack >= targetHealth)
+                    {
+                        minionBonus += 80;
+                    }
+
+                    minionBonus += targetAttack * 6;
+                }
+
+                return 250 + faceBonus + minionBonus + attack;
             }
 
             if (kind == ActionKind.Pass)
@@ -1779,7 +1818,21 @@ namespace HsBattle
             int score = EvaluateEntity(entity);
             if (entity.IsMinion())
             {
-                score += 25;
+                score += 30;
+                if (entity.HasTaunt())
+                {
+                    score += 20;
+                }
+
+                if (entity.HasDivineShield())
+                {
+                    score += 15;
+                }
+            }
+
+            if (entity.IsSpell())
+            {
+                score += 10;
             }
 
             return score;
@@ -1797,7 +1850,7 @@ namespace HsBattle
             return battlefieldZone != null ? battlefieldZone.GetCardCount() : -1;
         }
 
-        private int ResolveTargetId(GameState gameState, Entity sourceEntity, List<Network.Options.Option.TargetOption> targetOptions)
+        private int ResolveTargetId(GameState gameState, Entity sourceEntity, List<Network.Options.Option.TargetOption> targetOptions, ActionKind kind = ActionKind.Other)
         {
             if (targetOptions == null || targetOptions.Count == 0)
             {
@@ -1821,6 +1874,12 @@ namespace HsBattle
                     continue;
                 }
 
+                // Skip stealthed enemies
+                if (targetEntity.GetControllerSide() != Player.Side.FRIENDLY && targetEntity.IsStealthed())
+                {
+                    continue;
+                }
+
                 if (targetEntity.GetControllerSide() == Player.Side.FRIENDLY)
                 {
                     friendlyTargets.Add(targetEntity);
@@ -1828,6 +1887,18 @@ namespace HsBattle
                 else
                 {
                     enemyTargets.Add(targetEntity);
+                }
+            }
+
+            // Taunt enforcement: if attacking and enemy has taunt minions, only allow taunt targets
+            if (kind == ActionKind.Attack && enemyTargets.Count > 0)
+            {
+                List<Entity> tauntTargets = enemyTargets
+                    .Where(delegate (Entity item) { return item.HasTaunt() && !item.IsHero(); })
+                    .ToList();
+                if (tauntTargets.Count > 0)
+                {
+                    enemyTargets = tauntTargets;
                 }
             }
 
@@ -2067,9 +2138,16 @@ namespace HsBattle
         {
             int attack = sourceEntity != null ? sourceEntity.GetRealTimeAttack() : 0;
             int heroHealth = heroTarget != null ? heroTarget.GetCurrentHealth() : 30;
-            int lowHealthBonus = heroHealth <= 15 ? (16 - heroHealth) * 8 : 0;
-            int pressureBonus = attack > 0 && heroHealth <= attack * 2 ? 30 : 0;
-            return 120 + attack * 4 + lowHealthBonus + pressureBonus;
+            // Exact lethal
+            if (heroHealth > 0 && attack >= heroHealth)
+            {
+                return 100000;
+            }
+
+            int lowHealthBonus = heroHealth <= 15 ? (16 - heroHealth) * 10 : 0;
+            int pressureBonus = attack > 0 && heroHealth <= attack * 2 ? 50 : 0;
+            int nearLethalBonus = heroHealth <= 5 ? 80 : 0;
+            return 120 + attack * 5 + lowHealthBonus + pressureBonus + nearLethalBonus;
         }
 
         private int EvaluateEnemyMinionAttackPriority(Entity sourceEntity, Entity target)
@@ -2083,9 +2161,12 @@ namespace HsBattle
             int sourceHealth = sourceEntity != null ? sourceEntity.GetCurrentHealth() : 0;
             int targetAttack = target.GetRealTimeAttack();
             int targetHealth = target.GetCurrentHealth();
-            int lethalBonus = sourceAttack > 0 && targetHealth <= sourceAttack ? 40 : 0;
-            int survivalBonus = sourceHealth <= 0 || sourceHealth > targetAttack ? 15 : 0;
-            return 80 + targetAttack * 12 + targetHealth * 3 + lethalBonus + survivalBonus;
+            int lethalBonus = sourceAttack > 0 && targetHealth <= sourceAttack ? 60 : 0;
+            int survivalBonus = sourceHealth <= 0 || sourceHealth > targetAttack ? 25 : 0;
+            int unfavorablePenalty = sourceAttack > 0 && targetHealth > sourceAttack && sourceHealth > 0 && sourceHealth <= targetAttack ? -40 : 0;
+            int tauntBonus = target.HasTaunt() ? 50 : 0;
+            int divineShieldBonus = target.HasDivineShield() ? 30 : 0;
+            return 80 + targetAttack * 14 + targetHealth * 3 + lethalBonus + survivalBonus + unfavorablePenalty + tauntBonus + divineShieldBonus;
         }
 
         private bool RollChance(int percent)
