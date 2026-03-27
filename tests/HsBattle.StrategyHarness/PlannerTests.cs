@@ -33,7 +33,7 @@ namespace HsBattle.StrategyHarness
         private static void ResolverKillsEnemyOnCleanTrade()
         {
             HbSimulatedTurnState state = HbTestStateFactory.CreateCleanTradeState();
-            HbBattleOptionSnapshot attack = HbTestStateFactory.CreateAttackOption(11, 21, 3, 4, 2);
+            HbBattleOptionSnapshot attack = HbTestStateFactory.CreateAttackOption(sourceId: 11, targetId: 21, attack: 3, sourceHealth: 4, targetAttack: 2, targetHealth: 3, optionIndex: 0);
 
             HbActionResolver resolver = new HbActionResolver();
             bool applied = resolver.TryApply(state, attack, attack.Targets[0]);

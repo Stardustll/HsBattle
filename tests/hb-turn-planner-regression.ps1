@@ -15,6 +15,24 @@ function Normalize-SearchText {
     return $normalized.Trim()
 }
 
+function Strip-CSharpComments {
+    param(
+        [string]$Text
+    )
+
+    $withoutBlockComments = [System.Text.RegularExpressions.Regex]::Replace(
+        $Text,
+        '/\*.*?\*/',
+        ' ',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline)
+
+    return [System.Text.RegularExpressions.Regex]::Replace(
+        $withoutBlockComments,
+        '(^|[^:])//.*?$',
+        '$1 ',
+        [System.Text.RegularExpressions.RegexOptions]::Multiline)
+}
+
 function Assert-FileContains {
     param(
         [string]$Path,
@@ -29,7 +47,13 @@ function Assert-FileContains {
 
     $bytes = [System.IO.File]::ReadAllBytes($Path)
     $utf8 = New-Object System.Text.UTF8Encoding($false, $true)
-    $content = Normalize-SearchText -Text ($utf8.GetString($bytes))
+    $text = $utf8.GetString($bytes)
+
+    if ([System.IO.Path]::GetExtension($Path).Equals('.cs', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $text = Strip-CSharpComments -Text $text
+    }
+
+    $content = Normalize-SearchText -Text $text
 
     foreach ($pattern in $Patterns) {
         $needle = Normalize-SearchText -Text $pattern
@@ -44,7 +68,7 @@ $failures = New-Object 'System.Collections.Generic.List[string]'
 Assert-FileContains -Path (Join-Path $ScriptRoot '..\HsBattle\Strategy\Hb\HbBattleDecisionService.cs') -Patterns @(
     'private readonly HbTurnPlanner _turnPlanner = new HbTurnPlanner(',
     'HbActionSequencePlan sequence = _turnPlanner.Plan(snapshot);',
-    'return sequence != null && sequence.Steps.Count > 0 ? sequence.Steps[0] :'
+    'return sequence != null && sequence.Steps.Count > 0 ? sequence.Steps[0] : TryPickSingleStepFallback(snapshot);'
 ) -Failures $failures
 
 Assert-FileContains -Path (Join-Path $ScriptRoot '..\HsBattle\Strategy\Hb\HbTurnPlanner.cs') -Patterns @(

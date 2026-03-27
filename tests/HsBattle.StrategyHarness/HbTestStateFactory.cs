@@ -29,7 +29,7 @@ namespace HsBattle.StrategyHarness
 
             snapshot.FriendlyBoard.Add(new HbBattleEntitySnapshot { EntityId = 11, IsFriendly = true, IsMinion = true, Attack = 3, Health = 4, MaxHealth = 4, CanAttack = true });
             snapshot.EnemyBoard.Add(new HbBattleEntitySnapshot { EntityId = 21, IsFriendly = false, IsMinion = true, Attack = 2, Health = 3, MaxHealth = 3 });
-            snapshot.Options.Add(CreateAttackOption(11, 21, 3, 4, 2));
+            snapshot.Options.Add(CreateAttackOption(sourceId: 11, targetId: 21, attack: 3, sourceHealth: 4, targetAttack: 2, targetHealth: 3, optionIndex: 0));
             snapshot.Options.Add(new HbBattleOptionSnapshot { OptionIndex = 1, EntityId = 11, Description = "face attack", Kind = StrategyActionKind.Attack, Attack = 3, SourceHealth = 4, IsPlayable = true });
             return snapshot;
         }
@@ -47,16 +47,16 @@ namespace HsBattle.StrategyHarness
 
             snapshot.FriendlyBoard.Add(new HbBattleEntitySnapshot { EntityId = 11, IsFriendly = true, IsMinion = true, Attack = 2, Health = 3, MaxHealth = 3, CanAttack = true });
             snapshot.EnemyBoard.Add(new HbBattleEntitySnapshot { EntityId = 21, IsFriendly = false, IsMinion = true, Attack = 2, Health = 3, MaxHealth = 3 });
-            snapshot.Options.Add(CreateHeroPowerOption(51, 21, 2, 1));
-            snapshot.Options.Add(CreateAttackOption(11, 21, 2, 3, 2));
+            snapshot.Options.Add(CreateHeroPowerOption(sourceId: 51, targetId: 21, cost: 2, damage: 1, optionIndex: 0, targetAttack: 2, targetHealth: 3));
+            snapshot.Options.Add(CreateAttackOption(sourceId: 11, targetId: 21, attack: 2, sourceHealth: 3, targetAttack: 2, targetHealth: 3, optionIndex: 1));
             return snapshot;
         }
 
-        public static HbBattleOptionSnapshot CreateAttackOption(int sourceId, int targetId, int attack, int sourceHealth, int targetAttack)
+        public static HbBattleOptionSnapshot CreateAttackOption(int sourceId, int targetId, int attack, int sourceHealth, int targetAttack, int targetHealth, int optionIndex = 0)
         {
             HbBattleOptionSnapshot option = new HbBattleOptionSnapshot
             {
-                OptionIndex = 0,
+                OptionIndex = optionIndex,
                 EntityId = sourceId,
                 Description = "trade attack",
                 Kind = StrategyActionKind.Attack,
@@ -69,7 +69,7 @@ namespace HsBattle.StrategyHarness
             {
                 EntityId = targetId,
                 Attack = targetAttack,
-                Health = attack,
+                Health = targetHealth,
                 IsResolved = true,
                 IsEnemyCharacter = true
             });
@@ -77,11 +77,11 @@ namespace HsBattle.StrategyHarness
             return option;
         }
 
-        public static HbBattleOptionSnapshot CreateHeroPowerOption(int sourceId, int targetId, int cost, int damage)
+        public static HbBattleOptionSnapshot CreateHeroPowerOption(int sourceId, int targetId, int cost, int damage, int optionIndex = 0, int targetAttack = 2, int targetHealth = 3)
         {
             HbBattleOptionSnapshot option = new HbBattleOptionSnapshot
             {
-                OptionIndex = 0,
+                OptionIndex = optionIndex,
                 EntityId = sourceId,
                 Description = "hero power ping",
                 Kind = StrategyActionKind.HeroPower,
@@ -94,8 +94,8 @@ namespace HsBattle.StrategyHarness
             option.Targets.Add(new HbBattleTargetSnapshot
             {
                 EntityId = targetId,
-                Attack = 2,
-                Health = 3,
+                Attack = targetAttack,
+                Health = targetHealth,
                 IsResolved = true,
                 IsEnemyCharacter = true
             });
