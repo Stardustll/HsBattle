@@ -37,6 +37,15 @@ namespace HsBattle
         private static readonly MethodInfo RankChangeHideMethod = typeof(RankChangeTwoScoop_NEW).GetMethod("Hide", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo RankedBonusStarsPopupHideMethod = typeof(RankedBonusStarsPopup).GetMethod("Hide", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
+        private static readonly MethodInfo PlayGameMethod = typeof(DeckPickerTrayDisplay).GetMethod("PlayGame", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ShouldWaitForMulliganCardsMethod = typeof(MulliganManager).GetMethod("ShouldWaitForMulliganCardsToBeProcessed", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo WaitingForUserInputField = typeof(MulliganManager).GetField("m_waitingForUserInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly MethodInfo HideChoiceUIMethod = typeof(ChoiceCardMgr).GetMethod("HideChoiceUI", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo GetLastChosenDeckIdMethod = typeof(DeckPickerTrayDisplay).GetMethod("GetLastChosenDeckId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo GetFirstDeckboxMethod = typeof(DeckPickerTrayDisplay).GetMethod("GetFirstDeckbox", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly MethodInfo GetDeckboxWithDeckIDMethod = typeof(DeckPickerTrayDisplay).GetMethod("GetDeckboxWithDeckID", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, new[] { typeof(long) }, null);
+        private static readonly MethodInfo SelectCustomDeckMethod = typeof(DeckPickerTrayDisplay).GetMethod("SelectCustomDeck", BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(CollectionDeckBoxVisual) }, null);
+
         private bool _forceQueueRequested;
         private bool _queueReturnToHubPending;
         private bool _lastAutoQueueEnabled;
@@ -195,17 +204,7 @@ namespace HsBattle
 
         private bool TryHandlePostGameRankSummary()
         {
-            if (TryHandleRankChangeSummary())
-            {
-                return true;
-            }
-
-            if (TryHandleRankedBonusStarsPopup())
-            {
-                return true;
-            }
-
-            return false;
+            return TryHandleRankChangeSummary() || TryHandleRankedBonusStarsPopup();
         }
 
         private bool TryHandleRankChangeSummary()
@@ -329,14 +328,19 @@ namespace HsBattle
 
         private bool IsRankChangeReady(RankChangeTwoScoop_NEW rankChangeSummary)
         {
-            if (rankChangeSummary == null || RankChangeIsReadyMethod == null)
+            return InvokeBoolReflection(rankChangeSummary, RankChangeIsReadyMethod);
+        }
+
+        private static bool InvokeBoolReflection(object instance, MethodInfo method)
+        {
+            if (instance == null || method == null)
             {
                 return false;
             }
 
             try
             {
-                object result = RankChangeIsReadyMethod.Invoke(rankChangeSummary, null);
+                object result = method.Invoke(instance, null);
                 return result is bool && (bool)result;
             }
             catch
@@ -392,56 +396,17 @@ namespace HsBattle
 
         private bool IsEndGameDone(EndGameScreen endGameScreen)
         {
-            if (endGameScreen == null || EndGameIsDoneDisplayingRewardsMethod == null)
-            {
-                return false;
-            }
-
-            try
-            {
-                object result = EndGameIsDoneDisplayingRewardsMethod.Invoke(endGameScreen, null);
-                return result is bool && (bool)result;
-            }
-            catch
-            {
-                return false;
-            }
+            return InvokeBoolReflection(endGameScreen, EndGameIsDoneDisplayingRewardsMethod);
         }
 
         private bool IsEndGameInputBlocked(EndGameScreen endGameScreen)
         {
-            if (endGameScreen == null || EndGameIsInputBlockedMethod == null)
-            {
-                return false;
-            }
-
-            try
-            {
-                object result = EndGameIsInputBlockedMethod.Invoke(endGameScreen, null);
-                return result is bool && (bool)result;
-            }
-            catch
-            {
-                return false;
-            }
+            return InvokeBoolReflection(endGameScreen, EndGameIsInputBlockedMethod);
         }
 
         private bool IsEndGameBlockingAnimationPlaying(EndGameScreen endGameScreen)
         {
-            if (endGameScreen == null || EndGameIsPlayingBlockingAnimMethod == null)
-            {
-                return false;
-            }
-
-            try
-            {
-                object result = EndGameIsPlayingBlockingAnimMethod.Invoke(endGameScreen, null);
-                return result is bool && (bool)result;
-            }
-            catch
-            {
-                return false;
-            }
+            return InvokeBoolReflection(endGameScreen, EndGameIsPlayingBlockingAnimMethod);
         }
 
         private bool ShouldForceCloseEndGameScreen()
@@ -791,11 +756,7 @@ namespace HsBattle
                     return false;
                 }
 
-                MethodInfo method = typeof(DeckPickerTrayDisplay).GetMethod(
-                    "PlayGame",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-                if (method == null)
+                if (PlayGameMethod == null)
                 {
                     return false;
                 }
@@ -805,7 +766,7 @@ namespace HsBattle
                     PluginConfig.DescribeQueueMode(GetSelectedQueueMode()),
                     deckId));
 
-                method.Invoke(trayDisplay, null);
+                PlayGameMethod.Invoke(trayDisplay, null);
                 return true;
             }
             catch (Exception ex)
@@ -1482,16 +1443,12 @@ namespace HsBattle
 
             try
             {
-                MethodInfo method = typeof(MulliganManager).GetMethod(
-                    "ShouldWaitForMulliganCardsToBeProcessed",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-                if (method == null)
+                if (ShouldWaitForMulliganCardsMethod == null)
                 {
                     return false;
                 }
 
-                object value = method.Invoke(mulliganManager, null);
+                object value = ShouldWaitForMulliganCardsMethod.Invoke(mulliganManager, null);
                 return value is bool && (bool)value;
             }
             catch
@@ -1509,13 +1466,12 @@ namespace HsBattle
 
             try
             {
-                FieldInfo field = typeof(MulliganManager).GetField("m_waitingForUserInput", BindingFlags.Instance | BindingFlags.NonPublic);
-                if (field == null)
+                if (WaitingForUserInputField == null)
                 {
                     return false;
                 }
 
-                object value = field.GetValue(mulliganManager);
+                object value = WaitingForUserInputField.GetValue(mulliganManager);
                 return value is bool && (bool)value;
             }
             catch
@@ -2209,11 +2165,9 @@ namespace HsBattle
                     return;
                 }
 
-                MethodInfo method = typeof(ChoiceCardMgr).GetMethod("HideChoiceUI", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-                if (method != null)
+                if (HideChoiceUIMethod != null)
                 {
-                    method.Invoke(choiceCardMgr, null);
+                    HideChoiceUIMethod.Invoke(choiceCardMgr, null);
                 }
             }
             catch
@@ -2274,16 +2228,12 @@ namespace HsBattle
 
             try
             {
-                MethodInfo method = typeof(DeckPickerTrayDisplay).GetMethod(
-                    "GetLastChosenDeckId",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-                if (method == null)
+                if (GetLastChosenDeckIdMethod == null)
                 {
                     return 0L;
                 }
 
-                object value = method.Invoke(trayDisplay, null);
+                object value = GetLastChosenDeckIdMethod.Invoke(trayDisplay, null);
                 return value is long ? (long)value : 0L;
             }
             catch
@@ -2301,12 +2251,8 @@ namespace HsBattle
 
             try
             {
-                MethodInfo method = typeof(DeckPickerTrayDisplay).GetMethod(
-                    "GetFirstDeckbox",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-
-                return method != null
-                    ? method.Invoke(trayDisplay, null) as CollectionDeckBoxVisual
+                return GetFirstDeckboxMethod != null
+                    ? GetFirstDeckboxMethod.Invoke(trayDisplay, null) as CollectionDeckBoxVisual
                     : null;
             }
             catch
@@ -2338,15 +2284,8 @@ namespace HsBattle
 
             try
             {
-                MethodInfo method = typeof(DeckPickerTrayDisplay).GetMethod(
-                    "GetDeckboxWithDeckID",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                    null,
-                    new[] { typeof(long) },
-                    null);
-
-                return method != null
-                    ? method.Invoke(trayDisplay, new object[] { deckId }) as CollectionDeckBoxVisual
+                return GetDeckboxWithDeckIDMethod != null
+                    ? GetDeckboxWithDeckIDMethod.Invoke(trayDisplay, new object[] { deckId }) as CollectionDeckBoxVisual
                     : null;
             }
             catch
@@ -2364,19 +2303,12 @@ namespace HsBattle
 
             try
             {
-                MethodInfo method = typeof(DeckPickerTrayDisplay).GetMethod(
-                    "SelectCustomDeck",
-                    BindingFlags.Instance | BindingFlags.NonPublic,
-                    null,
-                    new[] { typeof(CollectionDeckBoxVisual) },
-                    null);
-
-                if (method == null)
+                if (SelectCustomDeckMethod == null)
                 {
                     return false;
                 }
 
-                object value = method.Invoke(trayDisplay, new object[] { deckbox });
+                object value = SelectCustomDeckMethod.Invoke(trayDisplay, new object[] { deckbox });
                 return value is bool && (bool)value;
             }
             catch

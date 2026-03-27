@@ -27,7 +27,7 @@ namespace HsBattle.Strategy.Hb
         private static bool ApplyAttack(HbSimulatedTurnState state, HbBattleOptionSnapshot option, HbBattleTargetSnapshot target)
         {
             HbBattleEntitySnapshot attacker = Find(state.FriendlyBoard, option.EntityId);
-            if (attacker == null || attacker.HasAttacked || !attacker.CanAttack)
+            if (attacker == null || attacker.HasAttacked || !attacker.CanAttack || attacker.IsFrozen)
             {
                 return false;
             }
@@ -63,8 +63,25 @@ namespace HsBattle.Strategy.Hb
                 return false;
             }
 
-            attacker.Health -= System.Math.Max(0, defender.Attack);
-            defender.Health -= System.Math.Max(0, option.Attack);
+            // Divine shield: absorb hit without taking damage, then remove shield
+            if (defender.HasDivineShield)
+            {
+                defender.HasDivineShield = false;
+            }
+            else
+            {
+                defender.Health -= System.Math.Max(0, option.Attack);
+            }
+
+            if (attacker.HasDivineShield)
+            {
+                attacker.HasDivineShield = false;
+            }
+            else
+            {
+                attacker.Health -= System.Math.Max(0, defender.Attack);
+            }
+
             RemoveDead(state.FriendlyBoard);
             RemoveDead(state.EnemyBoard);
             RecordStep(state, option, target);
@@ -104,6 +121,27 @@ namespace HsBattle.Strategy.Hb
                 ApplyTargetDelta(state, option.DamageAmount, target);
             }
 
+            // Track played minion on the board for subsequent planning steps
+            if (option.SourceHealth > 0)
+            {
+                state.FriendlyBoard.Add(new HbBattleEntitySnapshot
+                {
+                    EntityId = option.EntityId,
+                    IsFriendly = true,
+                    IsHero = false,
+                    IsMinion = true,
+                    Attack = option.Attack,
+                    Health = option.SourceHealth,
+                    MaxHealth = option.SourceHealth,
+                    CanAttack = false,
+                    HasAttacked = true,
+                    HasTaunt = false,
+                    HasDivineShield = false,
+                    IsStealthed = false,
+                    IsFrozen = false
+                });
+            }
+
             RecordStep(state, option, target);
             return true;
         }
@@ -141,7 +179,16 @@ namespace HsBattle.Strategy.Hb
                 return;
             }
 
-            entity.Health -= damageAmount;
+            // Respect divine shield on spell/hero-power damage targets
+            if (entity.HasDivineShield)
+            {
+                entity.HasDivineShield = false;
+            }
+            else
+            {
+                entity.Health -= damageAmount;
+            }
+
             RemoveDead(state.FriendlyBoard);
             RemoveDead(state.EnemyBoard);
         }

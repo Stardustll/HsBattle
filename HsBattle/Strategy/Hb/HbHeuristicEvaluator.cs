@@ -80,6 +80,12 @@ namespace HsBattle.Strategy.Hb
                 score -= 400;
             }
 
+            // Stealthed enemies cannot be targeted
+            if (target.IsStealthed && target.IsEnemyCharacter)
+            {
+                return int.MinValue;
+            }
+
             if (target.IsEnemyHero)
             {
                 score += 35;
@@ -118,9 +124,27 @@ namespace HsBattle.Strategy.Hb
                     score += target.Health * 4;
                 }
 
+                // Taunt priority: must clear taunt to reach hero
+                if (target.HasTaunt)
+                {
+                    score += 60;
+                }
+
+                // Divine shield targets are harder to kill — slightly higher priority to pop it
+                if (target.HasDivineShield)
+                {
+                    score += 40;
+                }
+
                 if (option.Attack > 0 && target.Health > 0 && option.Attack >= target.Health)
                 {
                     score += 140;
+
+                    // Extra bonus for efficiently killing divine-shield-less targets
+                    if (!target.HasDivineShield)
+                    {
+                        score += 30;
+                    }
                 }
 
                 if (option.Kind == StrategyActionKind.Attack && option.SourceHealth > 0 && target.Attack > 0)
@@ -213,6 +237,25 @@ namespace HsBattle.Strategy.Hb
             if (card.IsCoinKnown && card.IsCoin)
             {
                 score += 2;
+            }
+
+            // Penalize if hand already has another card at the same cost
+            if (snapshot != null && card.IsCostKnown && card.Cost >= 2)
+            {
+                int sameCount = 0;
+                for (int i = 0; i < snapshot.Cards.Count; i++)
+                {
+                    HbMulliganCardSnapshot other = snapshot.Cards[i];
+                    if (other != null && other != card && other.IsCostKnown && other.Cost == card.Cost)
+                    {
+                        sameCount++;
+                    }
+                }
+
+                if (sameCount >= 1)
+                {
+                    score -= 12;
+                }
             }
 
             return score;

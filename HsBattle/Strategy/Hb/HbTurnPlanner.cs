@@ -110,7 +110,7 @@ namespace HsBattle.Strategy.Hb
                 if (option.Kind == StrategyActionKind.Attack)
                 {
                     HbBattleEntitySnapshot attacker = state.FriendlyBoard.FirstOrDefault(entity => entity.EntityId == option.EntityId);
-                    if (attacker == null || attacker.HasAttacked || !attacker.CanAttack)
+                    if (attacker == null || attacker.HasAttacked || !attacker.CanAttack || attacker.IsFrozen)
                     {
                         continue;
                     }
@@ -122,9 +122,39 @@ namespace HsBattle.Strategy.Hb
                     for (int i = 0; i < option.Targets.Count; i++)
                     {
                         HbBattleTargetSnapshot target = option.Targets[i];
-                        if (IsTargetAvailable(state, target))
+                        if (IsTargetAvailable(state, target) && !target.IsStealthed)
                         {
                             liveTargets.Add(target);
+                        }
+                    }
+
+                    // Enforce taunt: when attacking and enemy has taunt minions, only allow taunt targets
+                    if (option.Kind == StrategyActionKind.Attack)
+                    {
+                        bool hasTaunt = false;
+                        for (int i = 0; i < liveTargets.Count; i++)
+                        {
+                            if (liveTargets[i].HasTaunt && liveTargets[i].IsEnemyCharacter)
+                            {
+                                hasTaunt = true;
+                                break;
+                            }
+                        }
+
+                        if (hasTaunt)
+                        {
+                            List<HbBattleTargetSnapshot> tauntOnly = new List<HbBattleTargetSnapshot>();
+                            for (int i = 0; i < liveTargets.Count; i++)
+                            {
+                                if ((liveTargets[i].HasTaunt && liveTargets[i].IsEnemyCharacter)
+                                    || liveTargets[i].IsFriendlyCharacter
+                                    || liveTargets[i].IsFriendlyHero)
+                                {
+                                    tauntOnly.Add(liveTargets[i]);
+                                }
+                            }
+
+                            liveTargets = tauntOnly;
                         }
                     }
 
@@ -205,7 +235,11 @@ namespace HsBattle.Strategy.Hb
                     IsEnemyHero = target.IsEnemyHero,
                     IsEnemyCharacter = target.IsEnemyCharacter,
                     IsFriendlyHero = target.IsFriendlyHero,
-                    IsFriendlyCharacter = target.IsFriendlyCharacter
+                    IsFriendlyCharacter = target.IsFriendlyCharacter,
+                    HasTaunt = target.HasTaunt,
+                    HasDivineShield = target.HasDivineShield,
+                    IsStealthed = target.IsStealthed,
+                    IsFrozen = target.IsFrozen
                 });
             }
 

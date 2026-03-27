@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace HsBattle.Strategy.Hb
 {
     internal sealed class HbMulliganDecisionService
@@ -28,12 +30,31 @@ namespace HsBattle.Strategy.Hb
                 return result;
             }
 
-            // Experimental mode generic conservative rule:
-            // prefer early cards, replace obvious late cards, and use heuristic score for middle cases.
+            // Detect coin: going second gives 4 cards + coin, so we can keep slightly higher curve
+            bool hasCoin = false;
+            for (int i = 0; i < snapshot.Cards.Count; i++)
+            {
+                if (snapshot.Cards[i] != null && snapshot.Cards[i].IsCoinKnown && snapshot.Cards[i].IsCoin)
+                {
+                    hasCoin = true;
+                    break;
+                }
+            }
+
+            // Track kept costs to avoid duplicate-cost hands
+            Dictionary<int, int> keptCostCounts = new Dictionary<int, int>();
+
             foreach (HbMulliganCardSnapshot card in snapshot.Cards)
             {
                 if (card == null || card.Index < 0)
                 {
+                    continue;
+                }
+
+                // Always keep coin
+                if (card.IsCoinKnown && card.IsCoin)
+                {
+                    result.KeepIndices.Add(card.Index);
                     continue;
                 }
 
@@ -45,21 +66,80 @@ namespace HsBattle.Strategy.Hb
                     continue;
                 }
 
-                if (card.Cost <= 2)
-                {
-                    result.KeepIndices.Add(card.Index);
-                    continue;
-                }
-
+                // Hard replace high-cost cards
                 if (card.Cost >= 5)
                 {
                     result.ReplaceIndices.Add(card.Index);
                     continue;
                 }
 
+                // Going first: 4-cost is too slow
+                if (card.Cost == 4 && !hasCoin)
+                {
+                    result.ReplaceIndices.Add(card.Index);
+                    continue;
+                }
+
+                // Penalize duplicate costs: if we already kept a card at this cost, lower priority
+                int existingAtCost = 0;
+                if (card.Cost >= 0)
+                {
+                    keptCostCounts.TryGetValue(card.Cost, out existingAtCost);
+                }
+
+                if (existingAtCost >= 1 && card.Cost >= 2)
+                {
+                    // Already have one at this cost — keep only if very good score
+                    if (score < 15)
+                    {
+                        result.ReplaceIndices.Add(card.Index);
+                        continue;
+                    }
+                }
+
+                // Keep low-cost cards (1 or 2 mana)
+                if (card.Cost <= 2)
+                {
+                    result.KeepIndices.Add(card.Index);
+                    if (card.Cost >= 0)
+                    {
+                        keptCostCounts[card.Cost] = existingAtCost + 1;
+                    }
+
+                    continue;
+                }
+
+                // 3-cost: keep if score is reasonable
+                if (card.Cost == 3 && score >= 0)
+                {
+                    result.KeepIndices.Add(card.Index);
+                    if (card.Cost >= 0)
+                    {
+                        keptCostCounts[card.Cost] = existingAtCost + 1;
+                    }
+
+                    continue;
+                }
+
+                // 4-cost with coin: keep if score positive
+                if (card.Cost == 4 && hasCoin && score >= 0)
+                {
+                    result.KeepIndices.Add(card.Index);
+                    if (card.Cost >= 0)
+                    {
+                        keptCostCounts[card.Cost] = existingAtCost + 1;
+                    }
+
+                    continue;
+                }
+
                 if (score >= 0)
                 {
                     result.KeepIndices.Add(card.Index);
+                    if (card.Cost >= 0)
+                    {
+                        keptCostCounts[card.Cost] = existingAtCost + 1;
+                    }
                 }
                 else
                 {

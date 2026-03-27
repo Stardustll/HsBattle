@@ -51,35 +51,36 @@ namespace HsBattle
             get
             {
                 Collection<string> values;
-                if (!_dictionary.TryGetValue(parameter, out values))
-                {
-                    return null;
-                }
-
-                return values;
+                return _dictionary.TryGetValue(parameter, out values) ? values : null;
             }
         }
 
         public bool Exists(string argueKey)
         {
-            return this[argueKey] != null && this[argueKey].Count > 0;
+            Collection<string> values;
+            return _dictionary.TryGetValue(argueKey, out values) && values != null && values.Count > 0;
         }
 
         public bool IsTrue(string argueKey)
         {
             CheckSingle(argueKey);
-            return this[argueKey] != null && this[argueKey][0].Equals("true", StringComparison.OrdinalIgnoreCase);
+            Collection<string> values;
+            return _dictionary.TryGetValue(argueKey, out values)
+                && values != null
+                && values.Count > 0
+                && values[0].Equals("true", StringComparison.OrdinalIgnoreCase);
         }
 
         public string Single(string argueKey)
         {
             CheckSingle(argueKey);
-            if (this[argueKey] != null && !IsTrue(argueKey))
+            Collection<string> values;
+            if (!_dictionary.TryGetValue(argueKey, out values) || values == null || values.Count == 0)
             {
-                return this[argueKey][0];
+                return null;
             }
 
-            return null;
+            return values[0].Equals("true", StringComparison.OrdinalIgnoreCase) ? null : values[0];
         }
 
         private static string RemoveQuotes(string argueValue)
@@ -102,7 +103,7 @@ namespace HsBattle
         {
             foreach (string value in valueList)
             {
-                AddDict(key, value);
+                AddOrAppend(key, value);
             }
         }
 
@@ -110,7 +111,12 @@ namespace HsBattle
         {
             if (_argueKey != null)
             {
-                DictAddValue(_argueKey, "true");
+                if (_dictionary.ContainsKey(_argueKey))
+                {
+                    throw new ArgumentException(string.Format("Argument {0} has already been defined", _argueKey));
+                }
+
+                AddOrAppend(_argueKey, "true");
                 _argueKey = null;
             }
         }
@@ -119,35 +125,27 @@ namespace HsBattle
         {
             if (_argueKey != null)
             {
-                AddDict(_argueKey, RemoveQuotes(argueValue));
+                AddOrAppend(_argueKey, RemoveQuotes(argueValue));
                 _argueKey = null;
             }
         }
 
-        private void AddDict(string key, string value)
+        private void AddOrAppend(string key, string value)
         {
-            if (!_dictionary.ContainsKey(key))
+            Collection<string> values;
+            if (!_dictionary.TryGetValue(key, out values))
             {
-                _dictionary.Add(key, new Collection<string>());
+                values = new Collection<string>();
+                _dictionary.Add(key, values);
             }
 
-            _dictionary[key].Add(value);
-        }
-
-        private void DictAddValue(string key, string value)
-        {
-            if (_dictionary.ContainsKey(key))
-            {
-                throw new ArgumentException(string.Format("Argument {0} has already been defined", key));
-            }
-
-            _dictionary.Add(key, new Collection<string>());
-            _dictionary[key].Add(value);
+            values.Add(value);
         }
 
         private void CheckSingle(string argueKey)
         {
-            if (this[argueKey] != null && this[argueKey].Count > 1)
+            Collection<string> values;
+            if (_dictionary.TryGetValue(argueKey, out values) && values != null && values.Count > 1)
             {
                 throw new ArgumentException(string.Format("{0} has been specified more than once, expecting single value", argueKey));
             }

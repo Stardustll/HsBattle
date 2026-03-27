@@ -412,7 +412,11 @@ namespace HsBattle.Strategy.Hb
                     IsEnemyHero = isEnemy && isHero,
                     IsEnemyCharacter = isEnemy && isCharacter,
                     IsFriendlyHero = !isEnemy && isHero,
-                    IsFriendlyCharacter = !isEnemy && isCharacter
+                    IsFriendlyCharacter = !isEnemy && isCharacter,
+                    HasTaunt = targetEntity != null && targetEntity.HasTaunt(),
+                    HasDivineShield = targetEntity != null && targetEntity.HasDivineShield(),
+                    IsStealthed = targetEntity != null && targetEntity.IsStealthed(),
+                    IsFrozen = targetEntity != null && targetEntity.IsFrozen()
                 };
             }
         }

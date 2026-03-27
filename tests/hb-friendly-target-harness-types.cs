@@ -99,6 +99,10 @@ namespace HsBattle.Strategy.Hb
         public bool IsEnemyCharacter { get; set; }
         public bool IsFriendlyHero { get; set; }
         public bool IsFriendlyCharacter { get; set; }
+        public bool HasTaunt { get; set; }
+        public bool HasDivineShield { get; set; }
+        public bool IsStealthed { get; set; }
+        public bool IsFrozen { get; set; }
     }
 
     public sealed class HbMulliganSnapshot
