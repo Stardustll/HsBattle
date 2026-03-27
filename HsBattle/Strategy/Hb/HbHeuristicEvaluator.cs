@@ -128,31 +128,31 @@ namespace HsBattle.Strategy.Hb
                     }
                 }
 
-                if (option.Kind == StrategyActionKind.Attack && option.Attack > 0 && target.Health > option.Attack && option.SourceHealth <= target.Attack)
-                {
-                    score -= 180;
-                }
-            }
-
-            if (target.IsFriendlyHero && target.IsDamaged)
+            if (option.Kind == StrategyActionKind.Attack && option.Attack > 0 && target.Health > option.Attack && option.SourceHealth <= target.Attack)
             {
-                score += 60;
+                score -= 180;
             }
+        }
 
-            if (target.IsFriendlyCharacter && target.IsDamaged)
-            {
-                score += 40;
-            }
+        if (target.IsFriendlyHero && target.IsDamaged)
+        {
+            score += 60;
+        }
 
-            if (target.IsFriendlyCharacter && !target.IsDamaged && target.Attack > 0)
-            {
-                score -= 35;
-            }
+        if (target.IsFriendlyCharacter && target.IsDamaged)
+        {
+            score += 40;
+        }
 
-            if (!target.IsEnemyHero && !target.IsEnemyCharacter)
-            {
-                score -= 500;
-            }
+        if (target.IsFriendlyCharacter && !target.IsDamaged && target.Attack > 0)
+        {
+            score -= 35;
+        }
+
+        if (!target.IsEnemyHero && !target.IsEnemyCharacter)
+        {
+            score -= 500;
+        }
 
             return score;
         }
