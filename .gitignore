@@ -9,3 +9,5 @@
 /docs/superpowers
 /tests
 /.worktrees/
+*.tmp
+*.log
