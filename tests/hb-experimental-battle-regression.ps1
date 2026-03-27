@@ -133,20 +133,21 @@ $damagedFriendly = [Activator]::CreateInstance($targetType, $true)
 $damagedFriendly.IsResolved = $true
 $damagedFriendly.IsFriendlyCharacter = $true
 $damagedFriendly.IsDamaged = $true
-$damagedFriendly.Attack = 3
+$damagedFriendly.Attack = 0
 
 $healthyFriendly = [Activator]::CreateInstance($targetType, $true)
 $healthyFriendly.IsResolved = $true
 $healthyFriendly.IsFriendlyCharacter = $true
 $healthyFriendly.IsDamaged = $false
-$healthyFriendly.Attack = 3
+$healthyFriendly.Attack = 0
 
 $evaluator = [Activator]::CreateInstance($evaluatorType, $true)
 $damagedScore = [int]$scoreMethod.Invoke($evaluator, @($null, $option, $damagedFriendly))
 $healthyScore = [int]$scoreMethod.Invoke($evaluator, @($null, $option, $healthyFriendly))
+$scoreDelta = $damagedScore - $healthyScore
 
-if ($damagedScore -le $healthyScore) {
-    throw \"expected damaged friendly target score ($damagedScore) to be greater than undamaged friendly target score ($healthyScore).\"
+if ($scoreDelta -ne 40) {
+    throw \"expected damaged friendly target score delta to be 40, but damaged=$damagedScore healthy=$healthyScore delta=$scoreDelta.\"
 }
 '@
 
